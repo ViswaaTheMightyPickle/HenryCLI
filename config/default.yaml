@@ -1,0 +1,40 @@
+# HenryCLI Configuration
+# Copy this to ~/.henrycli/config.yaml for custom settings
+
+lmstudio:
+  base_url: "http://localhost:1234"
+  timeout: 300
+  poll_interval: 0.5
+
+hardware:
+  vram_gb: 8
+  ram_gb: 32
+  gpu: "RTX 4060 Laptop"
+
+tiers:
+  T1:
+    default: "phi-3-mini-4k-instruct-q4_k_m"
+    vram_gb: 2.5
+    resident: true
+  T2:
+    default: "qwen2.5-7b-instruct-q4_k_m"
+    vram_gb: 4.5
+    resident: false
+  T3:
+    default: "deepseek-coder-6.7b-instruct-q4_k_m"
+    vram_gb: 8.0
+    resident: false
+  T4:
+    default: "qwen2.5-32b-instruct-q4_k_m"
+    vram_gb: 16.0
+    resident: false
+    cpu_offload: true
+
+context:
+  compression_threshold: 0.85
+  offload_token_limit: 20000
+  keep_recent_messages: 10
+
+performance:
+  model_switch_timeout: 60
+  inference_timeout: 300

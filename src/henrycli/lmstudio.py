@@ -1,0 +1,190 @@
+"""LM Studio API client with OpenAI compatibility."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import AsyncIterator, Optional
+
+import httpx
+from pydantic import BaseModel, Field
+
+
+class ChatMessage(BaseModel):
+    """A single chat message."""
+
+    role: str
+    content: str
+
+
+class ChatCompletionRequest(BaseModel):
+    """Request for chat completion."""
+
+    model: str
+    messages: list[ChatMessage]
+    temperature: float = 0.7
+    max_tokens: Optional[int] = None
+    stream: bool = False
+
+
+class ChatCompletionResponse(BaseModel):
+    """Response from chat completion."""
+
+    id: str
+    model: str
+    choices: list[Choice]
+    usage: Optional[Usage] = None
+
+
+class Choice(BaseModel):
+    """A choice from chat completion."""
+
+    index: int
+    message: ChatMessage
+    finish_reason: Optional[str] = None
+
+
+class Usage(BaseModel):
+    """Token usage statistics."""
+
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class ModelInfo(BaseModel):
+    """Information about a loaded model."""
+
+    id: str
+    object: str = "model"
+    created: int = 0
+    owned_by: str = "lmstudio"
+
+
+class ModelList(BaseModel):
+    """List of loaded models."""
+
+    object: str = "list"
+    data: list[ModelInfo] = Field(default_factory=list)
+
+    def model_ids(self) -> list[str]:
+        """Get list of model IDs."""
+        return [model.id for model in self.data]
+
+    def has_model(self, model_id: str) -> bool:
+        """Check if a model is loaded."""
+        return model_id in self.model_ids()
+
+
+class LMStudioClient:
+    """Client for LM Studio API."""
+
+    def __init__(
+        self,
+        base_url: str = "http://localhost:1234",
+        timeout: float = 300.0,
+    ):
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create HTTP client."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=httpx.Timeout(self.timeout),
+            )
+        return self._client
+
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+
+    async def get_models(self) -> ModelList:
+        """Get list of loaded models."""
+        client = await self._get_client()
+        response = await client.get("/v1/models")
+        response.raise_for_status()
+        return ModelList(**response.json())
+
+    async def is_model_loaded(self, model_id: str) -> bool:
+        """Check if a specific model is loaded."""
+        models = await self.get_models()
+        return models.has_model(model_id)
+
+    async def chat_completion(
+        self,
+        model: str,
+        messages: list[ChatMessage],
+        temperature: float = 0.7,
+        max_tokens: int | None = None,
+    ) -> ChatCompletionResponse:
+        """Get chat completion (non-streaming)."""
+        client = await self._get_client()
+        request = ChatCompletionRequest(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=False,
+        )
+        response = await client.post(
+            "/v1/chat/completions",
+            json=request.model_dump(),
+        )
+        response.raise_for_status()
+        return ChatCompletionResponse(**response.json())
+
+    async def chat_completion_stream(
+        self,
+        model: str,
+        messages: list[ChatMessage],
+        temperature: float = 0.7,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[str]:
+        """Stream chat completion."""
+        client = await self._get_client()
+        request = ChatCompletionRequest(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+
+        async with client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json=request.model_dump(),
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line.startswith("data: "):
+                    data = line[6:]
+                    if data == "[DONE]":
+                        break
+                    try:
+                        import json
+
+                        parsed = json.loads(data)
+                        if parsed.get("choices"):
+                            delta = parsed["choices"][0].get("delta", {})
+                            if content := delta.get("content"):
+                                yield content
+                    except json.JSONDecodeError:
+                        continue
+
+    async def health_check(self) -> bool:
+        """Check if LM Studio is available."""
+        try:
+            client = await self._get_client()
+            response = await client.get("/health")
+            return response.status_code == 200
+        except httpx.HTTPError:
+            # Fallback: try to get models
+            try:
+                await self.get_models()
+                return True
+            except httpx.HTTPError:
+                return False

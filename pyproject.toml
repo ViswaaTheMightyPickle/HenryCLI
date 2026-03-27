@@ -1,0 +1,81 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "henrycli"
+version = "0.1.0"
+description = "Multi-agent LLM orchestration for LM Studio with dynamic model loading/unloading"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "ViswaaTheMightyPickle", email = "thereddragonspeaks22919@protonmail.com" }
+]
+keywords = [
+    "llm",
+    "lm-studio",
+    "multi-agent",
+    "cli",
+    "local-llm",
+    "orchestration"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27.0",
+    "typer>=0.12.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+]
+
+[project.scripts]
+henry = "henrycli.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/ViswaaTheMightyPickle/HenryCLI"
+Repository = "https://github.com/ViswaaTheMightyPickle/HenryCLI"
+Issues = "https://github.com/ViswaaTheMightyPickle/HenryCLI/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/henrycli"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v --cov=src/henrycli --cov-report=term-missing"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
