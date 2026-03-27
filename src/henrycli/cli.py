@@ -7,13 +7,16 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from . import __version__
 from .agents.router import RouterAgent, TaskType
+from .auto_tier import AutoTier, AutoTierClassifier
 from .context.manager import ContextManager
 from .lmstudio import LMStudioClient
 from .models.config import ModelConfig
 from .models.pool import ModelPool
+from .plugins import PluginManager
 
 app = typer.Typer(
     name="henry",
@@ -340,6 +343,199 @@ def config(
             console.print("[dim]Edit this file to customize settings[/dim]")
 
     run()
+
+
+@app.command()
+def plugins(
+    list_plugins: bool = typer.Option(False, "--list", "-l", help="List plugins"),
+    enable: str | None = typer.Option(None, "--enable", "-e", help="Enable plugin"),
+    disable: str | None = typer.Option(None, "--disable", "-d", help="Disable plugin"),
+    configure_rag: bool = typer.Option(
+        False, "--configure-rag", help="Configure BigRAG plugin"
+    ),
+) -> None:
+    """Manage LM Studio plugins."""
+
+    def run() -> None:
+        plugin_manager = PluginManager()
+
+        if list_plugins:
+            console.print("[bold]Available Plugins:[/bold]\n")
+            plugins = plugin_manager.list_plugins()
+            for plugin in plugins:
+                status = "[green]enabled[/green]" if plugin["enabled"] else "[red]disabled[/red]"
+                console.print(
+                    f"[cyan]{plugin['name']}[/cyan] ({plugin['type']}): {status}"
+                )
+                if plugin["parameters"]:
+                    for key, value in plugin["parameters"].items():
+                        console.print(f"    {key}: [dim]{value}[/dim]")
+                console.print()
+
+        if enable:
+            if plugin_manager.enable_tool(enable):
+                console.print(f"[green]✓[/green] Enabled plugin: {enable}")
+            else:
+                console.print(f"[red]✗[/red] Unknown plugin: {enable}")
+
+        if disable:
+            if plugin_manager.disable_tool(disable):
+                console.print(f"[yellow]✓[/yellow] Disabled plugin: {disable}")
+            else:
+                console.print(f"[red]✗[/red] Unknown plugin: {disable}")
+
+        if configure_rag:
+            console.print("[bold]BigRAG Configuration[/bold]\n")
+            docs_dir = typer.prompt("Documents directory", default=str(Path.home() / "Documents"))
+            vector_dir = typer.prompt(
+                "Vector store directory",
+                default=str(Path.home() / ".henrycli" / "rag-db"),
+            )
+
+            if plugin_manager.configure_rag(docs_dir, vector_dir):
+                console.print(f"[green]✓[/green] BigRAG configured")
+                console.print(f"  Documents: {docs_dir}")
+                console.print(f"  Vector DB: {vector_dir}")
+            else:
+                console.print("[red]✗[/red] Failed to configure BigRAG")
+
+    run()
+
+
+@app.command()
+def load(
+    model: str = typer.Argument(..., help="Model to load (e.g., TheBloke/phi-3-mini-4k-instruct-GGUF)"),
+    gpu_layers: str = typer.Option("auto", "--gpu", "-g", help="GPU layers (auto, max, or 0.0-1.0)"),
+) -> None:
+    """Load a model in LM Studio."""
+
+    async def run() -> None:
+        client = get_client()
+        try:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                progress.add_task("Loading model...", total=None)
+
+                result = await client.load_model(
+                    model_key=model,
+                    gpu_layers=gpu_layers,
+                )
+
+            console.print(f"[green]✓[/green] Loaded: {model}")
+            console.print(f"  Instance ID: {result.get('instance_id', 'N/A')}")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Failed to load model: {e}")
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+
+
+@app.command()
+def unload(
+    all_models: bool = typer.Option(False, "--all", "-a", help="Unload all models"),
+    model_id: str | None = typer.Argument(None, help="Model instance ID to unload"),
+) -> None:
+    """Unload models from LM Studio."""
+
+    async def run() -> None:
+        client = get_client()
+        try:
+            if all_models:
+                results = await client.unload_all_models()
+                console.print(f"[green]✓[/green] Unloaded {len(results)} models")
+            elif model_id:
+                result = await client.unload_model(model_id)
+                console.print(f"[green]✓[/green] Unloaded: {result.get('instance_id', model_id)}")
+            else:
+                # Show loaded models
+                models = await client.get_models()
+                if models.data:
+                    console.print("[bold]Loaded Models:[/bold]")
+                    for model in models.data:
+                        console.print(f"  • {model.id}")
+                else:
+                    console.print("[dim]No models loaded[/dim]")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error: {e}")
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+
+
+@app.command()
+def discover(
+    auto_configure: bool = typer.Option(
+        False, "--auto-configure", "-c", help="Auto-configure tiers based on discovered models"
+    ),
+) -> None:
+    """
+    [EXPERIMENTAL] Discover and classify local models into tiers.
+    
+    Analyzes model names to estimate:
+    - Parameter count
+    - VRAM requirements  
+    - Appropriate tier (T1-T4)
+    """
+
+    async def run() -> None:
+        client = get_client()
+        config = ModelConfig()
+
+        try:
+            local_models = await client.list_local_models()
+
+            if not local_models:
+                console.print("[yellow]⚠ No local models found[/yellow]")
+                console.print("Download models using: lms get <model-name>")
+                return
+
+            classifier = AutoTierClassifier(
+                hardware_vram_gb=config.hardware.vram_gb
+            )
+            analyses = classifier.classify_local_models(local_models)
+
+            # Display results
+            console.print("[bold]Discovered Models by Tier:[/bold]\n")
+
+            for tier in [AutoTier.T1, AutoTier.T2, AutoTier.T3, AutoTier.T4]:
+                tier_models = [a for a in analyses if a.tier == tier]
+                if tier_models:
+                    console.print(f"[cyan]{tier.value}[/cyan] ({tier.value} models):")
+                    for model in tier_models:
+                        confidence = (
+                            "[green]high[/green]"
+                            if model.confidence == "high"
+                            else "[yellow]medium[/yellow]"
+                            if model.confidence == "medium"
+                            else "[red]low[/red]"
+                        )
+                        console.print(
+                            f"  • {model.model_key}"
+                        )
+                        console.print(
+                            f"    ~{model.estimated_params_b}B params, "
+                            f"~{model.estimated_vram_q4}GB VRAM (Q4), "
+                            f"confidence: {confidence}"
+                        )
+                    console.print()
+
+            if auto_configure:
+                console.print("\n[bold]Generating tier configuration...[/bold]")
+                tier_config = classifier.generate_tier_config(local_models)
+                console.print("[green]✓[/green] Configuration generated")
+                console.print("[dim]Use --show with models command to view[/dim]")
+
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error: {e}")
+        finally:
+            await client.close()
+
+    asyncio.run(run())
 
 
 def main() -> None:

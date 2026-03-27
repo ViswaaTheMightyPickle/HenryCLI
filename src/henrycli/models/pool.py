@@ -19,6 +19,7 @@ class ModelInfo:
     vram_gb: float = 0.0
     last_used: float = 0.0
     load_count: int = 0
+    instance_id: str | None = None  # LM Studio instance ID
 
 
 class ModelPool:
@@ -26,10 +27,11 @@ class ModelPool:
     Manages a pool of models with intelligent switching.
     
     Handles:
-    - Model loading/unloading coordination
+    - Model loading/unloading via LM Studio API
     - VRAM management
     - Hot caching for frequently-used models
     - Fallback to smaller models on failure
+    - Auto-tier classification for unknown models
     """
 
     def __init__(
@@ -340,3 +342,103 @@ class ModelPool:
                 }
             )
         return stats
+
+    async def auto_load_model(
+        self,
+        model_key: str,
+        gpu_layers: str = "auto",
+    ) -> tuple[bool, str]:
+        """
+        Automatically load a model via LM Studio API.
+
+        Args:
+            model_key: Model identifier
+            gpu_layers: GPU layers setting
+
+        Returns:
+            Tuple of (success, message)
+        """
+        try:
+            # Unload current model if needed
+            if self.current_model and not self.models.get(
+                self.current_model, ModelInfo("", "")
+            ).is_resident:
+                await self.client.unload_model(self.current_model)
+
+            # Load new model
+            result = await self.client.load_model(
+                model_key=model_key,
+                gpu_layers=gpu_layers,
+            )
+
+            instance_id = result.get("instance_id", "")
+            self.current_model = model_key
+
+            # Update model info
+            if model_key in self.models:
+                self.models[model_key].is_loaded = True
+                self.models[model_key].instance_id = instance_id
+                self.models[model_key].load_count += 1
+            else:
+                # Add new model to pool
+                self.models[model_key] = ModelInfo(
+                    model_id=model_key,
+                    tier="T2",  # Default tier
+                    is_loaded=True,
+                    instance_id=instance_id,
+                    load_count=1,
+                )
+
+            return True, f"Loaded {model_key}"
+
+        except Exception as e:
+            return False, f"Failed to load {model_key}: {e}"
+
+    async def auto_unload_all(self) -> list[str]:
+        """
+        Unload all non-resident models.
+
+        Returns:
+            List of unloaded model IDs
+        """
+        unloaded = []
+        try:
+            models = await self.client.get_models()
+            for model in models.data:
+                # Skip resident models
+                if model.id in self.models and self.models[model.id].is_resident:
+                    continue
+
+                try:
+                    await self.client.unload_model(model.id)
+                    unloaded.append(model.id)
+                    if model.id in self.models:
+                        self.models[model.id].is_loaded = False
+                except Exception:
+                    pass
+
+            self.current_model = None
+        except Exception:
+            pass
+
+        return unloaded
+
+    async def discover_and_classify_models(self) -> dict[str, Any]:
+        """
+        Discover local models and auto-classify them into tiers.
+
+        Returns:
+            Tier configuration from auto-classification
+        """
+        from ..auto_tier import AutoTierClassifier
+
+        classifier = AutoTierClassifier(
+            hardware_vram_gb=self.config.hardware.vram_gb
+        )
+
+        try:
+            local_models = await self.client.list_local_models()
+            config = classifier.generate_tier_config(local_models)
+            return config
+        except Exception:
+            return {"T1": [], "T2": [], "T3": [], "T4": []}

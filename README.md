@@ -16,35 +16,45 @@ HenryCLI is a CLI tool that orchestrates multiple local LLM models via LM Studio
 - **Context Management**: Dual-stream architecture preserves state across model swaps
 - **Smart Compression**: Offloads large content to filesystem, keeps context within limits
 - **Tier-Based Routing**: 4 model tiers (T1-T4) for different task complexities
+- **LM Studio Plugins**: Support for DuckDuckGo, Visit Website, and BigRAG plugins
+- **Auto Model Loading**: Load/unload models programmatically via LM Studio API
+- **Auto-Tier Classification**: [Experimental] Automatically classify models by parameter count
 
 ## Installation
 
-### Prerequisites
-
-1. **Python 3.10+**
-2. **LM Studio** installed and running
-3. **Models downloaded** in LM Studio (see Models section)
-
-### Install HenryCLI
+### Quick Install (Mac/Linux)
 
 ```bash
 # Clone the repository
 git clone https://github.com/ViswaaTheMightyPickle/HenryCLI
 cd HenryCLI
 
-# Install with pip (development mode)
-pip install -e ".[dev]"
-
-# Or install without dev dependencies
-pip install -e .
+# Run the installation script
+./install.sh
 ```
 
-### Verify Installation
+The installer will:
+- Check Python version (3.10+)
+- Install HenryCLI and dependencies
+- Set up configuration directories
+- Optionally install LM Studio plugins
+
+### Manual Install
 
 ```bash
+# Install with pip
+pip install -e ".[dev]"
+
+# Verify installation
 henry version
 henry health
 ```
+
+### Prerequisites
+
+1. **Python 3.10+**
+2. **LM Studio** installed and running (https://lmstudio.ai/)
+3. **Models downloaded** in LM Studio
 
 ## Quick Start
 
@@ -106,6 +116,39 @@ Manage context storage.
 ```bash
 henry context --show     # Show active contexts
 henry context --clear    # Clear all contexts
+```
+
+### `henry plugins`
+Manage LM Studio plugins.
+
+```bash
+henry plugins --list              # List all plugins
+henry plugins --enable duckduckgo # Enable DuckDuckGo search
+henry plugins --configure-rag     # Configure BigRAG plugin
+```
+
+### `henry load <model>`
+Load a model in LM Studio.
+
+```bash
+henry load "TheBloke/phi-3-mini-4k-instruct-GGUF"
+henry load "bartowski/Qwen2.5-7B-Instruct-GGUF" --gpu auto
+```
+
+### `henry unload`
+Unload models from LM Studio.
+
+```bash
+henry unload --all       # Unload all models
+henry unload <instance>  # Unload specific model
+```
+
+### `henry discover`
+[EXPERIMENTAL] Discover and classify local models into tiers.
+
+```bash
+henry discover                      # Show classified models
+henry discover --auto-configure     # Auto-generate tier config
 ```
 
 ### `henry config`
@@ -205,6 +248,62 @@ HenryCLI uses a **dual-stream architecture**:
 - **Runtime Stream**: Full state stored on filesystem (complete history, artifacts)
 
 This allows efficient context preservation across model swaps.
+
+## LM Studio Plugins
+
+HenryCLI supports LM Studio plugins for enhanced capabilities:
+
+### DuckDuckGo Search
+Web search capability for research tasks.
+
+```bash
+# Install plugin
+lms get danielsig/duckduckgo
+
+# Enable in HenryCLI
+henry plugins --enable duckduckgo
+```
+
+### Visit Website
+Extract content from webpages.
+
+```bash
+# Install plugin
+lms get danielsig/visit-website
+
+# Enable in HenryCLI
+henry plugins --enable visit_website
+```
+
+### BigRAG (Document Search)
+RAG-based document retrieval from local files.
+
+```bash
+# Install plugin
+lms get picklerick/big-rag-rust-accelerated
+
+# Configure in HenryCLI
+henry plugins --configure-rag
+# Follow prompts for documents directory and vector store
+```
+
+### Plugin Configuration
+
+Plugins are managed via `henry plugins`:
+
+```bash
+# List all plugins
+henry plugins --list
+
+# Enable a plugin
+henry plugins --enable duckduckgo
+
+# Disable a plugin
+henry plugins --disable big_rag
+
+# Configure BigRAG
+henry plugins --configure-rag
+```
 
 ### Model Switching
 

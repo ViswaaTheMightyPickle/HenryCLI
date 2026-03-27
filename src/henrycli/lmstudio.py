@@ -188,3 +188,104 @@ class LMStudioClient:
                 return True
             except httpx.HTTPError:
                 return False
+
+    async def load_model(
+        self,
+        model_key: str,
+        gpu_layers: str | None = None,
+        context_length: int | None = None,
+        identifier: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Load a model via LM Studio REST API.
+
+        Args:
+            model_key: Model identifier (e.g., "TheBloke/phi-3-mini-4k-instruct-GGUF")
+            gpu_layers: GPU layers setting ("max", "auto", or "0.0-1.0")
+            context_length: Context length
+            identifier: Custom identifier for the loaded model
+
+        Returns:
+            Response with instance_id
+        """
+        client = await self._get_client()
+        payload: dict[str, Any] = {"model_key": model_key}
+
+        if gpu_layers:
+            payload["gpu_layers"] = gpu_layers
+        if context_length:
+            payload["context_length"] = context_length
+        if identifier:
+            payload["identifier"] = identifier
+
+        response = await client.post(
+            "/api/v1/models/load",
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def unload_model(self, instance_id: str) -> dict[str, Any]:
+        """
+        Unload a model via LM Studio REST API.
+
+        Args:
+            instance_id: Instance ID of the model to unload
+
+        Returns:
+            Response with unloaded instance_id
+        """
+        client = await self._get_client()
+        response = await client.post(
+            "/api/v1/models/unload",
+            json={"instance_id": instance_id},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def unload_all_models(self) -> list[dict[str, Any]]:
+        """
+        Unload all loaded models.
+
+        Returns:
+            List of unloaded instance IDs
+        """
+        models = await self.get_models()
+        results = []
+        for model in models.data:
+            try:
+                result = await self.unload_model(model.id)
+                results.append(result)
+            except Exception:
+                pass
+        return results
+
+    async def download_model(self, model_key: str) -> dict[str, Any]:
+        """
+        Download a model via LM Studio CLI API.
+
+        Args:
+            model_key: Model identifier (e.g., "TheBloke/phi-3-mini-4k-instruct-GGUF")
+
+        Returns:
+            Download status
+        """
+        client = await self._get_client()
+        response = await client.post(
+            "/api/v1/models/download",
+            json={"model_key": model_key},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def list_local_models(self) -> list[dict[str, Any]]:
+        """
+        List all local models via LM Studio REST API.
+
+        Returns:
+            List of local models
+        """
+        client = await self._get_client()
+        response = await client.get("/api/v1/models/local")
+        response.raise_for_status()
+        return response.json().get("models", [])
