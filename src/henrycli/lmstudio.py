@@ -283,9 +283,40 @@ class LMStudioClient:
         List all local models via LM Studio REST API.
 
         Returns:
-            List of local models
+            List of local models (empty list if API not available)
         """
-        client = await self._get_client()
-        response = await client.get("/api/v1/models/local")
-        response.raise_for_status()
-        return response.json().get("models", [])
+        try:
+            client = await self._get_client()
+            # Try the local models endpoint first
+            response = await client.get("/api/v1/models/local")
+            response.raise_for_status()
+            return response.json().get("models", [])
+        except httpx.HTTPError:
+            # Fallback: return empty list if endpoint not available
+            # LM Studio may not have this endpoint in all versions
+            return []
+
+    async def list_downloaded_models(self) -> list[dict[str, Any]]:
+        """
+        List downloaded models using lms CLI as fallback.
+
+        Returns:
+            List of model information dicts
+        """
+        import subprocess
+        import json
+
+        try:
+            # Use lms CLI to list models
+            result = subprocess.run(
+                ["lms", "ls", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                return json.loads(result.stdout)
+        except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+            pass
+
+        return []

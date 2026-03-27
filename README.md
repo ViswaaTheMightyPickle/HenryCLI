@@ -151,6 +151,28 @@ henry discover                      # Show classified models
 henry discover --auto-configure     # Auto-generate tier config
 ```
 
+### `henry tui`
+Launch the Terminal User Interface (TUI).
+
+```bash
+henry tui
+```
+
+The TUI provides:
+- Real-time model status display
+- Interactive task input with analysis
+- Model tier discovery and loading
+- Task history tracking
+- Keyboard shortcuts for common actions
+
+**Keyboard Shortcuts:**
+- `Ctrl+Q` - Quit
+- `Ctrl+N` - New task
+- `Ctrl+R` - Refresh models
+- `Ctrl+L` - Clear log
+- `F1` - Help
+- `Escape` - Clear input
+
 ### `henry get <url>`
 Download files to the RAG documents directory.
 

@@ -38,6 +38,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
     "rich>=13.0.0",
+    "textual>=0.50.0",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +46,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=5.0.0",
+    "pytest-benchmark>=4.0.0",
     "ruff>=0.5.0",
     "mypy>=1.10.0",
 ]

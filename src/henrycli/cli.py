@@ -472,6 +472,9 @@ def discover(
     auto_configure: bool = typer.Option(
         False, "--auto-configure", "-c", help="Auto-configure tiers based on discovered models"
     ),
+    use_cli: bool = typer.Option(
+        False, "--use-cli", help="Use lms CLI instead of REST API"
+    ),
 ) -> None:
     """
     [EXPERIMENTAL] Discover and classify local models into tiers.
@@ -483,15 +486,27 @@ def discover(
     """
 
     async def run() -> None:
+        from ..auto_tier import AutoTier, AutoTierClassifier
+
         client = get_client()
         config = ModelConfig()
 
         try:
+            # Try to get models from API first
             local_models = await client.list_local_models()
-
+            
+            # If API returns empty, try CLI fallback
+            if not local_models and use_cli:
+                local_models = await client.list_downloaded_models()
+            
+            # If still no models, show helpful message
             if not local_models:
-                console.print("[yellow]⚠ No local models found[/yellow]")
-                console.print("Download models using: lms get <model-name>")
+                console.print("[yellow]⚠ No local models found via API[/yellow]")
+                console.print("\n[dim]Possible solutions:[/dim]")
+                console.print("  1. Make sure LM Studio server is running (port 1234)")
+                console.print("  2. Download models using: lms get <model-name>")
+                console.print("  3. Try with --use-cli flag: henry discover --use-cli")
+                console.print("\n[dim]Note: LM Studio REST API may not expose local models in all versions.[/dim]")
                 return
 
             classifier = AutoTierClassifier(
@@ -502,9 +517,11 @@ def discover(
             # Display results
             console.print("[bold]Discovered Models by Tier:[/bold]\n")
 
+            has_models = False
             for tier in [AutoTier.T1, AutoTier.T2, AutoTier.T3, AutoTier.T4]:
                 tier_models = [a for a in analyses if a.tier == tier]
                 if tier_models:
+                    has_models = True
                     console.print(f"[cyan]{tier.value}[/cyan] ({tier.value} models):")
                     for model in tier_models:
                         confidence = (
@@ -524,14 +541,19 @@ def discover(
                         )
                     console.print()
 
-            if auto_configure:
+            if not has_models:
+                console.print("[yellow]⚠ Models found but could not classify[/yellow]")
+                console.print("[dim]Model names may not follow standard naming conventions[/dim]")
+
+            if auto_configure and has_models:
                 console.print("\n[bold]Generating tier configuration...[/bold]")
                 tier_config = classifier.generate_tier_config(local_models)
                 console.print("[green]✓[/green] Configuration generated")
-                console.print("[dim]Use --show with models command to view[/dim]")
+                console.print("[dim]Edit ~/.henrycli/models/config.yaml to apply[/dim]")
 
         except Exception as e:
             console.print(f"[red]✗[/red] Error: {e}")
+            console.print("[dim]Tip: Try 'henry discover --use-cli' as fallback[/dim]")
         finally:
             await client.close()
 
@@ -540,7 +562,7 @@ def discover(
 
 @app.command()
 def get(
-    url: str = typer.Argument(..., help="URL to download (GitHub, arXiv, direct file)"),
+    url: str | None = typer.Argument(None, help="URL to download (GitHub, arXiv, direct file)"),
     filename: str | None = typer.Option(None, "--name", "-n", help="Custom filename"),
     list_files: bool = typer.Option(False, "--list", "-l", help="List downloaded files"),
     delete: str | None = typer.Option(None, "--delete", "-d", help="Delete a downloaded file"),
@@ -614,6 +636,13 @@ def get(
             console.print(f"[red]✗[/red] {result.get('message', 'Download failed')}")
 
     asyncio.run(run())
+
+
+@app.command()
+def tui() -> None:
+    """Launch the HenryCLI Terminal User Interface."""
+    from .tui import run_tui
+    run_tui()
 
 
 def main() -> None:
