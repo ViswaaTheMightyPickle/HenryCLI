@@ -151,6 +151,26 @@ henry discover                      # Show classified models
 henry discover --auto-configure     # Auto-generate tier config
 ```
 
+### `henry get <url>`
+Download files to the RAG documents directory.
+
+```bash
+# Download a GitHub file
+henry get https://github.com/user/repo/blob/main/file.py
+
+# Download an arXiv paper
+henry get https://arxiv.org/abs/2301.12345
+
+# Download a PDF
+henry get https://example.com/document.pdf
+
+# List downloaded files
+henry get --list
+
+# Delete a file
+henry get --delete filename.pdf
+```
+
 ### `henry config`
 Manage configuration.
 
@@ -285,7 +305,14 @@ lms get picklerick/big-rag-rust-accelerated
 # Configure in HenryCLI
 henry plugins --configure-rag
 # Follow prompts for documents directory and vector store
+
+# Download documents to RAG directory
+henry get https://github.com/user/repo/blob/main/doc.md
+henry get https://arxiv.org/abs/2301.12345
+henry get --list  # List downloaded files
 ```
+
+Documents downloaded with `henry get` are stored in `~/.henrycli/rag-docs/` and can be used with BigRAG for document-aware conversations.
 
 ### Plugin Configuration
 

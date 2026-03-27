@@ -538,6 +538,84 @@ def discover(
     asyncio.run(run())
 
 
+@app.command()
+def get(
+    url: str = typer.Argument(..., help="URL to download (GitHub, arXiv, direct file)"),
+    filename: str | None = typer.Option(None, "--name", "-n", help="Custom filename"),
+    list_files: bool = typer.Option(False, "--list", "-l", help="List downloaded files"),
+    delete: str | None = typer.Option(None, "--delete", "-d", help="Delete a downloaded file"),
+) -> None:
+    """
+    Download files to the RAG documents directory.
+    
+    Supports:
+    - GitHub files (auto-converts to raw URL)
+    - arXiv papers (downloads HTML version)
+    - Direct file URLs (PDF, TXT, MD, code files)
+    
+    Examples:
+        henry get https://github.com/user/repo/blob/main/file.py
+        henry get https://arxiv.org/abs/2301.12345
+        henry get https://example.com/document.pdf
+        henry get --list
+    """
+
+    async def run() -> None:
+        from .downloader import DocumentDownloader
+
+        downloader = DocumentDownloader()
+
+        if list_files:
+            files = downloader.list_downloaded()
+            if not files:
+                console.print("[dim]No downloaded files[/dim]")
+                console.print(f"RAG directory: {downloader.get_rag_directory()}")
+                return
+
+            console.print(f"[bold]Downloaded Files ({len(files)}):[/bold]\n")
+            for file in files:
+                size_kb = file["size_bytes"] / 1024
+                console.print(
+                    f"  [cyan]{file['filename']}[/cyan] - [dim]{size_kb:.1f} KB[/dim]"
+                )
+            console.print(f"\n[dim]Location: {downloader.get_rag_directory()}[/dim]")
+            return
+
+        if delete:
+            if downloader.delete(delete):
+                console.print(f"[green]✓[/green] Deleted: {delete}")
+            else:
+                console.print(f"[red]✗[/red] File not found: {delete}")
+            return
+
+        # Download file
+        console.print(f"[bold blue]Downloading:[/bold blue] {url}")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            progress.add_task("Downloading...", total=None)
+
+            result = await downloader.download(url, filename=filename)
+
+        if result.get("success"):
+            console.print(f"[green]✓[/green] Downloaded: {result['filename']}")
+            console.print(f"  Size: {result['size_bytes'] / 1024:.1f} KB")
+            console.print(f"  Path: {result['path']}")
+
+            # Prompt to configure BigRAG if not already done
+            console.print("\n[dim]Tip: Run 'henry plugins --configure-rag' to use with BigRAG[/dim]")
+        elif result.get("skipped"):
+            console.print(f"[yellow]⚠[/yellow] {result['message']}")
+            console.print(f"  Path: {result['path']}")
+        else:
+            console.print(f"[red]✗[/red] {result.get('message', 'Download failed')}")
+
+    asyncio.run(run())
+
+
 def main() -> None:
     """Entry point."""
     app()
