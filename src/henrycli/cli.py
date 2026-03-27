@@ -486,7 +486,7 @@ def discover(
     """
 
     async def run() -> None:
-        from ..auto_tier import AutoTier, AutoTierClassifier
+        from henrycli.auto_tier import AutoTier, AutoTierClassifier
 
         client = get_client()
         config = ModelConfig()
