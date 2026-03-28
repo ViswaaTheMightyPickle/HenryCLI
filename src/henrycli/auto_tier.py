@@ -116,6 +116,18 @@ class AutoTierClassifier:
         """
         model_lower = model_key.lower()
 
+        # Skip embedding models - they're not for chat/completion
+        if "embedding" in model_lower or "embed-" in model_lower:
+            return ModelAnalysis(
+                model_key=model_key,
+                estimated_params_b=0,
+                tier=AutoTier.T4,  # Put in T4 so they're not used for chat
+                estimated_vram_q4=0,
+                estimated_vram_q8=0,
+                confidence="high",
+                reasoning="Embedding model - not for chat/completion",
+            )
+
         # Try to extract parameter count
         params_b = self._extract_params(model_lower)
         confidence = "high" if params_b > 0 else "low"
