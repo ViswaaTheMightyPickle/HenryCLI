@@ -156,18 +156,7 @@ def run(
             if analysis.task_type.value == "code" and target_tier == "T1":
                 console.print("[dim]Upgrading tier for code task (T1 → T2)[/dim]")
                 target_tier = "T2"
-            
-            # For code tasks, prefer 14B+ models (more reliable at ReAct)
-            if analysis.task_type.value == "code" and target_tier == "T2":
-                # Find a 14B+ model in T2
-                t2_models = model_pool.get_models_for_tier("T2")
-                for mdl in t2_models:
-                    mdl_lower = mdl.lower()
-                    if "14b" in mdl_lower or "ministral" in mdl_lower:
-                        console.print("[dim]Using 14B+ model for reliable code generation[/dim]")
-                        target_model = mdl
-                        break
-            
+
             # Allow user override with --tier flag
             if tier:
                 target_tier = tier
@@ -180,14 +169,15 @@ def run(
 
             # For code tasks, prefer 14B+ models (more reliable at ReAct)
             if analysis.task_type.value == "code" and target_tier == "T2":
-                # Find a 14B+ model in T2
-                t2_models = model_pool.get_models_for_tier("T2")
-                for mdl in t2_models:
-                    mdl_lower = mdl.lower()
-                    if "14b" in mdl_lower or "ministral" in mdl_lower:
-                        console.print("[dim]Using 14B+ model for reliable code generation[/dim]")
-                        target_model = mdl
-                        break
+                # Find a 14B+ model in T2 from config
+                tier_config = config.get_tier("T2")
+                if tier_config and tier_config.models:
+                    for mdl in tier_config.models:
+                        mdl_lower = mdl.lower()
+                        if "14b" in mdl_lower or "ministral" in mdl_lower:
+                            console.print("[dim]Using 14B+ model for reliable code generation[/dim]")
+                            target_model = mdl
+                            break
 
             console.print(f"\n[bold blue]Using model:[/bold blue] {target_model}")
 
