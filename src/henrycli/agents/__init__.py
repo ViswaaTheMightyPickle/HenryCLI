@@ -2,6 +2,7 @@
 
 from .base import BaseAgent, TaskResult, AgentState
 from .router import RouterAgent, TaskType, TaskAnalysis
+from .agentic import AgenticAgent
 from .specialist import (
     CodeAgent,
     ResearchAgent,
@@ -17,6 +18,7 @@ __all__ = [
     "RouterAgent",
     "TaskType",
     "TaskAnalysis",
+    "AgenticAgent",
     "CodeAgent",
     "ResearchAgent",
     "WritingAgent",

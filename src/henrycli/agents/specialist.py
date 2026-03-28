@@ -5,11 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from .base import BaseAgent, TaskResult
+from .agentic import AgenticAgent
 from ..lmstudio import LMStudioClient
 from ..tools import FileSystemTools
 
 
-class CodeAgent(BaseAgent):
+class CodeAgent(AgenticAgent):
     """
     Specialist agent for coding tasks.
     
@@ -18,104 +19,37 @@ class CodeAgent(BaseAgent):
     - Debugging
     - Refactoring
     - Code review
+    
+    Uses ReAct-style loop to actually write files and run commands.
     """
 
-    SYSTEM_PROMPT = """You are an expert software engineer specializing in code generation, debugging, and refactoring.
+    SYSTEM_PROMPT = """You are an expert software engineer that completes coding tasks by actually writing files and running commands.
 
-Your capabilities:
-- Write clean, efficient, and well-documented code
-- Debug and fix issues
-- Refactor code for better maintainability
-- Follow best practices and design patterns
-- Write tests when appropriate
+You have access to these tools:
+{tools}
 
-When writing code:
-- Use meaningful variable names
-- Add comments for complex logic
-- Handle errors appropriately
-- Follow the project's existing style
+To complete a coding task:
+1. Think about what files need to be created or modified
+2. Use write_file to create/modify code files
+3. Use run_command to test your code (e.g., "python file.py")
+4. Fix any errors that occur
+5. When the task is complete and code works, provide a Final Answer
 
-Output your response with code in markdown code blocks."""
+Always actually write the code files - don't just describe them!
+Use Final Answer when the code is written and tested.
+
+Begin!"""
 
     def __init__(self, client: LMStudioClient, model: str = "qwen2.5-7b-instruct-q4_k_m"):
         super().__init__(
-            agent_id="code-agent",
-            model=model,
             client=client,
-            system_prompt=self.SYSTEM_PROMPT,
+            model=model,
+            max_iterations=15,  # More iterations for complex coding tasks
         )
-        self.fs_tools = FileSystemTools()
-        self.file_store: dict[str, str] = {}
-
-    async def execute(self, task: str) -> TaskResult:
-        """Execute a coding task."""
-        try:
-            self._add_user_message(task)
-            response = await self._call_model(temperature=0.3, max_tokens=4000)
-            
-            # Extract any code blocks as artifacts
-            artifacts = self._extract_code_blocks(response)
-            
-            return TaskResult(
-                success=True,
-                output=response,
-                artifacts=artifacts,
-                metadata={"agent": "code", "artifacts_count": len(artifacts)},
-            )
-        except Exception as e:
-            return TaskResult(
-                success=False,
-                output="",
-                error=str(e),
-            )
-
-    def _extract_code_blocks(self, text: str) -> list[str]:
-        """Extract code blocks from response."""
-        import re
-        blocks = re.findall(r'```[\w]*\n(.*?)```', text, re.DOTALL)
-        return blocks
-
-    def read_file(self, path: str) -> str:
-        """Read a file into the agent's context."""
-        result = self.fs_tools.read_file(path)
-        if result["success"]:
-            content = result["content"]
-            self.file_store[path] = content
-            self._add_user_message(f"--- Content of {path} ---\n{content}")
-            return content
-        else:
-            error_msg = f"Error reading {path}: {result.get('error', 'Unknown error')}"
-            self._add_user_message(error_msg)
-            return ""
-
-    def write_file(self, path: str, content: str) -> bool:
-        """Write content to a file."""
-        result = self.fs_tools.write_file(path, content)
-        if result["success"]:
-            self.file_store[path] = content
-            return True
-        return False
-
-    def list_directory(self, path: str = ".") -> list[str]:
-        """List files in a directory."""
-        result = self.fs_tools.list_directory(path)
-        if result["success"]:
-            files = result["files"]
-            self._add_user_message(f"--- Files in {path} ---\n" + "\n".join(files))
-            return files
-        return []
-
-    def search_files(self, pattern: str, recursive: bool = True) -> list[str]:
-        """Search for files matching a pattern."""
-        result = self.fs_tools.search_files(pattern, recursive=recursive)
-        if result["success"]:
-            files = result["files"]
-            self._add_user_message(f"--- Files matching '{pattern}' ---\n" + "\n".join(files))
-            return files
-        return []
+        self.agent_id = "code-agent"
 
 
-class ResearchAgent(BaseAgent):
+class ResearchAgent(AgenticAgent):
     """
     Specialist agent for research tasks.
     
@@ -124,89 +58,37 @@ class ResearchAgent(BaseAgent):
     - Pattern recognition
     - Information gathering
     - Documentation review
+    
+    Uses ReAct-style loop to read files and explore the codebase.
     """
 
-    SYSTEM_PROMPT = """You are an expert researcher specializing in analyzing codebases, documentation, and technical information.
+    SYSTEM_PROMPT = """You are an expert researcher that analyzes codebases by reading files and exploring directories.
 
-Your capabilities:
-- Analyze file structures and patterns
-- Review documentation and extract key information
-- Identify architectural patterns
-- Summarize technical content
-- Find connections between different parts of a codebase
+You have access to these tools:
+{tools}
 
-When analyzing:
-- Be thorough and systematic
-- Cite specific files or sections when relevant
-- Provide clear summaries
-- Highlight important findings"""
+To analyze a codebase:
+1. Start by listing directories to understand the structure
+2. Read relevant files to understand the code
+3. Search for patterns or specific code
+4. Synthesize your findings
+5. Provide a Final Answer with your analysis
+
+Always actually read the files - don't make assumptions!
+Use Final Answer when you have completed your analysis.
+
+Begin!"""
 
     def __init__(self, client: LMStudioClient, model: str = "qwen2.5-7b-instruct-q4_k_m"):
         super().__init__(
-            agent_id="research-agent",
-            model=model,
             client=client,
-            system_prompt=self.SYSTEM_PROMPT,
+            model=model,
+            max_iterations=20,  # More iterations for thorough research
         )
-        self.fs_tools = FileSystemTools()
-        self.analyzed_files: list[str] = []
-
-    async def execute(self, task: str) -> TaskResult:
-        """Execute a research task."""
-        try:
-            self._add_user_message(task)
-            response = await self._call_model(temperature=0.2, max_tokens=4000)
-            
-            return TaskResult(
-                success=True,
-                output=response,
-                artifacts=self.analyzed_files,
-                metadata={"agent": "research", "files_analyzed": len(self.analyzed_files)},
-            )
-        except Exception as e:
-            return TaskResult(
-                success=False,
-                output="",
-                error=str(e),
-            )
-
-    def read_file(self, path: str) -> str:
-        """Read a file for analysis."""
-        result = self.fs_tools.read_file(path, max_lines=200)
-        if result["success"]:
-            content = result["content"]
-            self.analyzed_files.append(path)
-            self._add_user_message(f"--- Content of {path} ({result['lines']} lines) ---\n{content}")
-            return content
-        else:
-            error_msg = f"Error reading {path}: {result.get('error', 'Unknown error')}"
-            self._add_user_message(error_msg)
-            return ""
-
-    def list_directory(self, path: str = ".", recursive: bool = False) -> list[str]:
-        """List files in a directory."""
-        result = self.fs_tools.list_directory(path, recursive=recursive)
-        if result["success"]:
-            files = result["files"]
-            self._add_user_message(f"--- Files in {path} ({result['count']} files) ---\n" + "\n".join(files[:50]))
-            if len(files) > 50:
-                self._add_user_message(f"... and {len(files) - 50} more files")
-            return files
-        return []
-
-    def search_files(self, pattern: str, recursive: bool = True) -> list[str]:
-        """Search for files matching a pattern."""
-        result = self.fs_tools.search_files(pattern, recursive=recursive)
-        if result["success"]:
-            files = result["files"]
-            self._add_user_message(f"--- Files matching '{pattern}' ({result['count']} found) ---\n" + "\n".join(files[:50]))
-            if len(files) > 50:
-                self._add_user_message(f"... and {len(files) - 50} more files")
-            return files
-        return []
+        self.agent_id = "research-agent"
 
 
-class WritingAgent(BaseAgent):
+class WritingAgent(AgenticAgent):
     """
     Specialist agent for writing tasks.
     
@@ -215,70 +97,36 @@ class WritingAgent(BaseAgent):
     - Explanations
     - Content creation
     - Technical writing
+    
+    Uses ReAct-style loop to write documentation files.
     """
 
-    SYSTEM_PROMPT = """You are an expert technical writer specializing in clear, concise, and well-structured documentation.
+    SYSTEM_PROMPT = """You are an expert technical writer that creates documentation by actually writing files.
 
-Your capabilities:
-- Write technical documentation
-- Create tutorials and guides
-- Write clear explanations
-- Edit and improve existing content
-- Adapt tone for different audiences
+You have access to these tools:
+{tools}
 
-When writing:
-- Use clear, simple language
-- Structure content logically
-- Use examples when helpful
-- Include headings and formatting for readability
-- Be concise but thorough"""
+To complete a writing task:
+1. Read any existing context files if needed
+2. Write the documentation/content to a file
+3. Review what you wrote
+4. Provide a Final Answer with the location and summary
+
+Always actually write the documentation files!
+Use Final Answer when the writing is complete.
+
+Begin!"""
 
     def __init__(self, client: LMStudioClient, model: str = "qwen2.5-7b-instruct-q4_k_m"):
         super().__init__(
-            agent_id="writing-agent",
-            model=model,
             client=client,
-            system_prompt=self.SYSTEM_PROMPT,
+            model=model,
+            max_iterations=10,
         )
-        self.fs_tools = FileSystemTools()
-
-    async def execute(self, task: str) -> TaskResult:
-        """Execute a writing task."""
-        try:
-            self._add_user_message(task)
-            response = await self._call_model(temperature=0.5, max_tokens=4000)
-            
-            return TaskResult(
-                success=True,
-                output=response,
-                metadata={"agent": "writing"},
-            )
-        except Exception as e:
-            return TaskResult(
-                success=False,
-                output="",
-                error=str(e),
-            )
-
-    def read_context(self, path: str) -> str:
-        """Read context from a file."""
-        result = self.fs_tools.read_file(path)
-        if result["success"]:
-            content = result["content"]
-            self._add_user_message(f"--- Context from {path} ---\n{content}")
-            return content
-        else:
-            error_msg = f"Error reading {path}: {result.get('error', 'Unknown error')}"
-            self._add_user_message(error_msg)
-            return ""
-
-    def write_file(self, path: str, content: str) -> bool:
-        """Write content to a file."""
-        result = self.fs_tools.write_file(path, content)
-        return result["success"]
+        self.agent_id = "writing-agent"
 
 
-class ReasoningAgent(BaseAgent):
+class ReasoningAgent(AgenticAgent):
     """
     Specialist agent for complex reasoning tasks.
     
@@ -287,49 +135,33 @@ class ReasoningAgent(BaseAgent):
     - Security analysis
     - Complex problem solving
     - Mathematical reasoning
+    
+    Uses ReAct-style loop to read context and write analysis files.
     """
 
-    SYSTEM_PROMPT = """You are an expert problem solver specializing in complex reasoning tasks.
+    SYSTEM_PROMPT = """You are an expert problem solver that completes complex reasoning tasks.
 
-Your capabilities:
-- Analyze complex problems systematically
-- Make architectural decisions
-- Perform security analysis
-- Solve mathematical problems
-- Provide step-by-step reasoning
+You have access to these tools:
+{tools}
 
-When reasoning:
-- Break down problems into smaller parts
-- Show your reasoning step-by-step
-- Consider multiple approaches
-- Evaluate trade-offs
-- Provide clear conclusions"""
+To complete a reasoning task:
+1. Read any relevant context files
+2. Think through the problem step-by-step
+3. Write your analysis/recommendations to a file
+4. Provide a Final Answer with your conclusions
+
+Show your reasoning clearly and provide actionable recommendations.
+Use Final Answer when you have completed your analysis.
+
+Begin!"""
 
     def __init__(self, client: LMStudioClient, model: str = "qwen2.5-32b-instruct-q4_k_m"):
         super().__init__(
-            agent_id="reasoning-agent",
-            model=model,
             client=client,
-            system_prompt=self.SYSTEM_PROMPT,
+            model=model,
+            max_iterations=15,
         )
-
-    async def execute(self, task: str) -> TaskResult:
-        """Execute a reasoning task."""
-        try:
-            self._add_user_message(task)
-            response = await self._call_model(temperature=0.2, max_tokens=6000)
-            
-            return TaskResult(
-                success=True,
-                output=response,
-                metadata={"agent": "reasoning"},
-            )
-        except Exception as e:
-            return TaskResult(
-                success=False,
-                output="",
-                error=str(e),
-            )
+        self.agent_id = "reasoning-agent"
 
 
 def create_agent_for_type(
