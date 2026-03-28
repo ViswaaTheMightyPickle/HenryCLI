@@ -1,8 +1,12 @@
 """Specialist agents for different task types."""
 
 import asyncio
+import warnings
 from pathlib import Path
 from typing import Any
+
+# Suppress spurious RuntimeWarning about unawaited coroutines
+warnings.filterwarnings('ignore', category=RuntimeWarning, message='.*coroutine.*never awaited')
 
 from .base import BaseAgent, TaskResult
 from .agentic import AgenticAgent
