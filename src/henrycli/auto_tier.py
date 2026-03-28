@@ -193,7 +193,9 @@ class AutoTierClassifier:
         Returns:
             AutoTier value
         """
-        if params_b < 7:  # < 7B → T1 (too small for complex tasks)
+        if params_b < 4:  # < 4B → T1 (too small for complex tasks, but ok for routing)
+            return AutoTier.T1
+        elif params_b < 7:  # 4B-7B → T1 (better for routing)
             return AutoTier.T1
         elif params_b < 20:  # 7B-20B → T2 (good for most tasks)
             return AutoTier.T2
@@ -211,7 +213,7 @@ class AutoTierClassifier:
             models: List of model dicts from LM Studio API or CLI
 
         Returns:
-            List of ModelAnalysis results
+            List of ModelAnalysis results, sorted by tier and params
         """
         results = []
         for model in models:
@@ -222,6 +224,14 @@ class AutoTierClassifier:
             )
             analysis = self.analyze_model(model_key)
             results.append(analysis)
+        
+        # Sort by tier (T1 first) then by params (larger first within tier)
+        # This ensures the best routing model is first in each tier
+        results.sort(key=lambda x: (
+            x.tier.value,  # T1 before T2, etc.
+            -x.estimated_params_b  # Larger models first within tier
+        ))
+        
         return results
 
     def get_models_for_tier(
