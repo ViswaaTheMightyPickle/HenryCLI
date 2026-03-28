@@ -153,6 +153,7 @@ class ModelPool:
         self,
         model_id: str,
         force: bool = False,
+        context_length: int | None = None,
     ) -> bool:
         """
         Switch to a specific model.
@@ -160,6 +161,7 @@ class ModelPool:
         Args:
             model_id: Model to switch to
             force: Force switch even if already loaded
+            context_length: Optional context length (auto-detected if None)
 
         Returns:
             True if successful
@@ -184,10 +186,15 @@ class ModelPool:
         # Determine if extended timeout needed
         use_extended = self.models[model_id].vram_gb > self.config.hardware.vram_gb
 
+        # Get context length if not specified
+        if context_length is None:
+            context_length = self.config.get_context_length_for_model(model_id)
+
         # Wait for model to be loaded (user or external process)
         result = await self.switcher.switch_model(
             model_id,
             use_extended_timeout=use_extended,
+            context_length=context_length,
         )
 
         if result.status in (
@@ -347,6 +354,7 @@ class ModelPool:
         self,
         model_key: str,
         gpu_layers: str = "auto",
+        unload_current: bool = True,
     ) -> tuple[bool, str]:
         """
         Automatically load a model via LM Studio API.
@@ -354,16 +362,22 @@ class ModelPool:
         Args:
             model_key: Model identifier
             gpu_layers: GPU layers setting
+            unload_current: Whether to unload current model first (saves VRAM)
 
         Returns:
             Tuple of (success, message)
         """
         try:
-            # Unload current model if needed
-            if self.current_model and not self.models.get(
-                self.current_model, ModelInfo("", "")
-            ).is_resident:
-                await self.client.unload_model(self.current_model)
+            # Unload current model if requested and not resident
+            if unload_current and self.current_model:
+                current_info = self.models.get(self.current_model)
+                if current_info and not current_info.is_resident:
+                    try:
+                        await self.client.unload_model(self.current_model)
+                        self.models[self.current_model].is_loaded = False
+                    except Exception:
+                        pass  # Model might already be unloaded
+                self.current_model = None
 
             # Get appropriate context length for model
             context_length = self.config.get_context_length_for_model(model_key)

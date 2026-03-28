@@ -150,21 +150,42 @@ def run(
             # Check if model switch needed
             if model_pool.current_model != target_model:
                 console.print("\n[yellow]Model switch required...[/yellow]")
-                console.print(
-                    "[dim]Please load the model in LM Studio, then press Enter[/dim]"
-                )
-                if interactive:
-                    input()
+                
+                # Get context length for target model
+                context_length = config.get_context_length_for_model(target_model)
+                console.print(f"[dim]Context length: {context_length} tokens[/dim]")
+                
+                # Try to load model automatically via API
+                console.print("[dim]Attempting to load model automatically...[/dim]")
+                try:
+                    result = await client.load_model(
+                        model_key=target_model,
+                        gpu_layers="auto",
+                        context_length=context_length,
+                    )
+                    if result.get("instance_id"):
+                        console.print(f"[green]✓[/green] Auto-loaded: {target_model}")
+                        model_pool.current_model = target_model
+                    else:
+                        raise Exception("Model load failed")
+                except Exception as e:
+                    # Fallback to manual load
+                    console.print(f"[dim]Auto-load failed ({e}), manual load required[/dim]")
+                    console.print(
+                        "[dim]Please load the model in LM Studio, then press Enter[/dim]"
+                    )
+                    if interactive:
+                        input()
 
-                success, actual_model = await model_pool.switch_with_fallback(
-                    target_model
-                )
+                    success, actual_model = await model_pool.switch_with_fallback(
+                        target_model
+                    )
 
-                if not success:
-                    console.print("[red]Failed to switch model[/red]")
-                    return
+                    if not success:
+                        console.print("[red]Failed to switch model[/red]")
+                        return
 
-                console.print(f"[green]✓[/green] Switched to: {actual_model}")
+                    console.print(f"[green]✓[/green] Switched to: {actual_model}")
 
             # Create context
             context_manager.create_context(
