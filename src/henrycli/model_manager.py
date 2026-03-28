@@ -139,7 +139,10 @@ class ModelManager:
         Returns:
             List of unloaded model IDs
         """
-        return await self.pool.auto_unload_all()
+        # Use direct client API to unload all instances
+        results = await self.client.unload_all_models()
+        self.pool.current_model = None
+        return [r.get("instance_id", "") for r in results]
 
     async def get_current_model(self) -> str | None:
         """Get currently loaded model ID."""

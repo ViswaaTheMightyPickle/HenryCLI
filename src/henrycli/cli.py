@@ -997,10 +997,9 @@ def init(
                         # Get appropriate context length for model
                         context_length = config.get_context_length_for_model(routing_model)
 
-                        # Unload all models first
+                        # Unload all models first (including all instances)
                         console.print("[dim]Unloading all models...[/dim]")
-                        model_pool = ModelPool(client, config)
-                        await model_pool.auto_unload_all()
+                        await client.unload_all_models()
 
                         result = await client.load_model(
                             model_key=routing_model,
