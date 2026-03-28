@@ -85,47 +85,49 @@ Begin!"""
     def _select_model(self, client: LMStudioClient, model: str | None, task_type: str) -> str:
         """Select appropriate model, avoiding small models that fail at ReAct."""
         import asyncio
-        
+
         # If no model specified, use default
         if model is None:
             return "qwen2.5-7b-instruct-q4_k_m"
-        
+
         # Check if model is too small
         model_lower = model.lower()
         if any(pattern in model_lower for pattern in self.SMALL_MODEL_PATTERNS):
             # Need to find a better model from loaded models
             try:
                 loop = asyncio.get_event_loop()
-                
+
                 # Check if loop is already running (we're inside async context)
                 if loop.is_running():
-                    # Can't use run_until_complete, return model as-is
-                    # The agent will work, just might use a smaller model
-                    return model
-                
+                    # Can't use run_until_complete, but we can try to get models synchronously
+                    # by checking if client has a sync method or cached models
+                    # For now, return a preferred model directly
+                    # The CLI should have loaded an appropriate model
+                    return "qwen2.5-7b-instruct-q4_k_m"
+
                 # Loop not running, safe to use run_until_complete
                 loaded = loop.run_until_complete(client.get_models())
-                
+
                 # Find best match from preferred models
                 for preferred in self.PREFERRED_MODELS:
                     for mdl in loaded.data:
                         if preferred in mdl.id.lower():
                             return mdl.id
-                
+
                 # Fall back to any model >= 7B
                 for mdl in loaded.data:
                     mdl_lower = mdl.id.lower()
                     if any(size in mdl_lower for size in ["7b", "8b", "9b", "14b", "20b", "30b", "32b"]):
                         return mdl.id
-                
+
                 # Last resort: use any non-small model
                 for mdl in loaded.data:
                     if not any(p in mdl.id.lower() for p in self.SMALL_MODEL_PATTERNS):
                         return mdl.id
-                        
+
             except Exception as e:
                 pass  # Fall through to original model
-        
+
         return model
 
 

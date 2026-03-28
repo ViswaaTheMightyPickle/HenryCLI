@@ -151,6 +151,11 @@ def run(
 
             # Determine target tier
             target_tier = tier or analysis.recommended_tier
+            
+            # Upgrade tier for code tasks - small models (<7B) can't do ReAct reliably
+            if analysis.task_type.value == "code" and target_tier == "T1":
+                console.print("[dim]Upgrading tier for code task (T1 → T2)[/dim]")
+                target_tier = "T2"
 
             # Get model for tier
             target_model = model_pool.get_model_for_tier(target_tier)
@@ -238,7 +243,7 @@ def run(
                     
                     verifier = RouterAgent(client)
                     verification = await verifier.analyze(verification_prompt)
-                    console.print(f"[dim]Verification: {verification.output[:200]}...[/dim]")
+                    console.print(f"[dim]Verification: {verification.reasoning[:200]}...[/dim]")
                 else:
                     console.print("[dim]Verification skipped (router not available)[/dim]")
             else:
