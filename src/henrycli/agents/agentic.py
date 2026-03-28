@@ -31,8 +31,9 @@ class Tool:
         """Generate tool description for prompt."""
         params = ", ".join(f"{k}: {v}" for k, v in self.parameters.items())
         if params:
-            return f"- {self.name}({params}): {self.description}"
-        return f"- {self.name}(): {self.description}"
+            # Use concatenation to avoid format() conflicts
+            return "- " + self.name + "(" + params + "): " + self.description
+        return "- " + self.name + "(): " + self.description
 
 
 class AgenticAgent(BaseAgent):

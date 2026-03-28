@@ -49,12 +49,12 @@ IMPORTANT RULES:
 Example for creating a hello world program:
 Thought: I need to create a Python file that prints Hello World
 Action: write_file
-Action Input: {"path": "hello.py", "content": "print('Hello, World!')"}
+Action Input: {{"path": "hello.py", "content": "print('Hello, World!')"}}
 
 Then after you see the file was created:
 Thought: Now I should test the program
 Action: run_command
-Action Input: {"command": "python hello.py"}
+Action Input: {{"command": "python hello.py"}}
 
 Then after you see the output:
 Thought: I have completed the task
@@ -92,6 +92,14 @@ Begin!"""
             # Need to find a better model from loaded models
             try:
                 loop = asyncio.get_event_loop()
+                
+                # Check if loop is already running (we're inside async context)
+                if loop.is_running():
+                    # Can't use run_until_complete, return model as-is
+                    # The agent will work, just might use a smaller model
+                    return model
+                
+                # Loop not running, safe to use run_until_complete
                 loaded = loop.run_until_complete(client.get_models())
                 
                 # Find best match from preferred models
@@ -111,7 +119,7 @@ Begin!"""
                     if not any(p in mdl.id.lower() for p in self.SMALL_MODEL_PATTERNS):
                         return mdl.id
                         
-            except Exception:
+            except Exception as e:
                 pass  # Fall through to original model
         
         return model
@@ -262,6 +270,9 @@ Begin!"""
         if any(pattern in model_lower for pattern in self.SMALL_MODEL_PATTERNS):
             try:
                 loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    return model  # Can't query during running loop
+                
                 loaded = loop.run_until_complete(client.get_models())
                 
                 for preferred in self.PREFERRED_MODELS:
@@ -334,34 +345,37 @@ Begin!"""
     def _select_model(self, client: LMStudioClient, model: str | None) -> str:
         """Select appropriate model, avoiding small models."""
         import asyncio
-        
+
         if model is None:
             return "qwen2.5-32b-instruct-q4_k_m"
-        
+
         model_lower = model.lower()
         if any(pattern in model_lower for pattern in self.SMALL_MODEL_PATTERNS):
             try:
                 loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    return model
+
                 loaded = loop.run_until_complete(client.get_models())
-                
+
                 for preferred in self.PREFERRED_MODELS:
                     for mdl in loaded.data:
                         if preferred in mdl.id.lower():
                             return mdl.id
-                
+
                 # For reasoning, prefer larger models (20B+)
                 for mdl in loaded.data:
                     if any(size in mdl.id.lower() for size in ["20b", "30b", "32b", "34b", "70b"]):
                         return mdl.id
-                
+
                 # Fall back to any 7B+
                 for mdl in loaded.data:
                     if any(size in mdl.id.lower() for size in ["7b", "8b", "9b", "14b"]):
                         return mdl.id
-                        
+
             except Exception:
                 pass
-        
+
         return model
 
 
