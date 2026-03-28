@@ -192,14 +192,31 @@ Begin!"""
 
     def _parse_action(self, response: str) -> dict[str, str] | None:
         """Parse action from model response."""
-        # Look for Action: and Action Input:
-        action_match = re.search(r"Action:\s*(\w+)", response)
-        input_match = re.search(r"Action Input:\s*(.+?)(?=\n|$)", response, re.DOTALL)
+        # Look for Action: and Action Input: with more flexible patterns
+        action_match = re.search(r"Action:\s*([a-zA-Z_]+)", response)
+        
+        # Try multiple patterns for action input
+        input_patterns = [
+            r"Action Input:\s*(\{.+?\})",  # JSON format
+            r"Action Input:\s*(.+?)(?=\n|$)",  # Text format until newline
+        ]
+        
+        input_match = None
+        for pattern in input_patterns:
+            input_match = re.search(pattern, response, re.DOTALL)
+            if input_match:
+                break
         
         if action_match:
+            action_input = input_match.group(1).strip() if input_match else ""
+            
+            # Clean up common issues
+            if action_input.startswith('"') and action_input.endswith('"'):
+                action_input = action_input[1:-1]
+            
             return {
-                "action": action_match.group(1),
-                "input": input_match.group(1).strip() if input_match else "",
+                "action": action_match.group(1).strip(),
+                "input": action_input,
             }
         return None
 

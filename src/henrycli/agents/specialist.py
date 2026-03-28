@@ -28,15 +28,37 @@ class CodeAgent(AgenticAgent):
 You have access to these tools:
 {tools}
 
-To complete a coding task:
-1. Think about what files need to be created or modified
-2. Use write_file to create/modify code files
-3. Use run_command to test your code (e.g., "python file.py")
-4. Fix any errors that occur
-5. When the task is complete and code works, provide a Final Answer
+You MUST use this EXACT format for EVERY response:
 
-Always actually write the code files - don't just describe them!
-Use Final Answer when the code is written and tested.
+Thought: <your reasoning about what to do next>
+Action: <tool_name>
+Action Input: <tool parameters>
+
+OR when the task is complete:
+
+Thought: I have completed the task
+Final Answer: <your final response>
+
+IMPORTANT RULES:
+1. You MUST write files to actually create code - do NOT just describe code in markdown
+2. Use write_file to create code files with the actual code content
+3. Use run_command to test your code (e.g., "python hello.py")
+4. Always wait for the Observation after each action
+5. Only use Final Answer when the task is truly complete
+
+Example for creating a hello world program:
+Thought: I need to create a Python file that prints Hello World
+Action: write_file
+Action Input: {"path": "hello.py", "content": "print('Hello, World!')"}
+
+Then after you see the file was created:
+Thought: Now I should test the program
+Action: run_command
+Action Input: {"command": "python hello.py"}
+
+Then after you see the output:
+Thought: I have completed the task
+Final Answer: Created and tested hello.py which prints "Hello, World!"
 
 Begin!"""
 
@@ -175,20 +197,33 @@ def create_agent_for_type(
     Args:
         task_type: Type of task (code, research, writing, reasoning)
         client: LM Studio client
-        model: Optional model override
+        model: Optional model override (if None, uses agent's default)
     
     Returns:
         Specialist agent instance
     """
-    # Default models for each type
+    # Default models for each type - these are MINIMUM sizes for agentic behavior
+    # Smaller models (<7B) often fail to follow ReAct format reliably
     defaults = {
-        "code": "qwen2.5-7b-instruct-q4_k_m",
-        "research": "qwen2.5-7b-instruct-q4_k_m",
-        "writing": "qwen2.5-7b-instruct-q4_k_m",
-        "reasoning": "qwen2.5-32b-instruct-q4_k_m",
+        "code": "qwen2.5-7b-instruct-q4_k_m",  # 7B minimum for code generation
+        "research": "qwen2.5-7b-instruct-q4_k_m",  # 7B for analysis
+        "writing": "qwen2.5-7b-instruct-q4_k_m",  # 7B for coherent writing
+        "reasoning": "qwen2.5-32b-instruct-q4_k_m",  # 32B for complex reasoning
     }
     
+    # Use provided model or default
+    # If provided model is too small, use the default instead
     selected_model = model or defaults.get(task_type, "qwen2.5-7b-instruct-q4_k_m")
+    
+    # Check if model is likely too small for agentic work
+    # Models < 7B often fail at ReAct-style tool use
+    model_too_small = any(
+        small in selected_model.lower()
+        for small in ["1b", "2b", "3b", "4b", "0.5b", "phi-3-mini", "phi-2"]
+    )
+    
+    if model_too_small and not model:  # Only override if using default
+        selected_model = defaults.get(task_type, "qwen2.5-7b-instruct-q4_k_m")
     
     agents = {
         "code": CodeAgent(client, selected_model),
