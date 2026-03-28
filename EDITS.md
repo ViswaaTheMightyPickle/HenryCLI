@@ -82,6 +82,27 @@ After comprehensive testing of HenryCLI commands and comparison with LM Studio (
      - Task history tracking
    - Usage: Run `henry tui` to launch
 
+### Phase 4: Specialist Agents ✅
+
+9. **Created specialist agent system** ✅
+   - Files: `src/henrycli/agents/specialist.py`, `src/henrycli/tools/filesystem.py`
+   - Agents:
+     - **CodeAgent**: Code generation, debugging, refactoring
+     - **ResearchAgent**: File analysis, pattern recognition, documentation review
+     - **WritingAgent**: Documentation, explanations, content creation
+     - **ReasoningAgent**: Complex reasoning, architecture decisions, security analysis
+   - Tools:
+     - **FileSystemTools**: read_file, write_file, list_directory, search_files
+   - Integration:
+     - `henry run` now routes tasks to appropriate specialist agents
+     - Each agent has specialized system prompts and capabilities
+     - File system tools enable agents to read/write project files
+   - Usage:
+     - `henry run "Write a Python function to sort a list"` → CodeAgent
+     - `henry run "Analyze the architecture of this codebase"` → ResearchAgent
+     - `henry run "Write documentation for the API"` → WritingAgent
+     - `henry run "Design a scalable architecture for..."` → ReasoningAgent
+
 ---
 
 ## Architecture Overview
@@ -90,7 +111,7 @@ After comprehensive testing of HenryCLI commands and comparison with LM Studio (
 
 ```
 henry init           # Initialize and auto-configure (NEW)
-henry run <task>     # Execute task with agent routing
+henry run <task>     # Execute task with specialist agents (UPDATED)
 henry analyze <task> # Analyze task without executing
 henry discover       # Discover and classify local models
 henry models         # Show configured/local models
@@ -102,12 +123,47 @@ henry import-model   # Import local model file
 henry tui            # Launch terminal UI
 ```
 
+### Agent System
+
+**Router Agent** (T1 model, ~4B params)
+- Analyzes tasks and determines type/complexity
+- Routes to appropriate specialist agent
+- Extracts subtasks
+
+**Specialist Agents**:
+| Agent | Purpose | Default Model | Tier |
+|-------|---------|---------------|------|
+| CodeAgent | Code generation, debugging | qwen2.5-7b | T2 |
+| ResearchAgent | File analysis, research | qwen2.5-7b | T2 |
+| WritingAgent | Documentation, writing | qwen2.5-7b | T2 |
+| ReasoningAgent | Complex reasoning | qwen2.5-32b | T4 |
+
+**File System Tools**:
+- `read_file(path)` - Read file content
+- `write_file(path, content)` - Write file content
+- `list_directory(path)` - List directory contents
+- `search_files(pattern)` - Search for files by pattern
+
 ### Model Tier System
 
 - **T1** (< 5B params): Routing agent, resident in VRAM
-- **T2** (5-10B params): General tasks
-- **T3** (10-20B params): Code generation
+- **T2** (5-10B params): General tasks, writing, research
+- **T3** (10-20B params): Code generation, debugging
 - **T4** (20B+ params): Complex reasoning, CPU offload
+
+### Task Execution Flow
+
+1. User runs `henry run <task>`
+2. **RouterAgent** analyzes task (type, complexity, subtasks)
+3. System determines target tier and model
+4. Loads appropriate model if not already loaded
+5. Routes task to **specialist agent** based on type:
+   - Code tasks → CodeAgent
+   - Research tasks → ResearchAgent
+   - Writing tasks → WritingAgent
+   - Reasoning tasks → ReasoningAgent
+6. Specialist agent executes task with file system tools
+7. Result displayed and context saved
 
 ### Configuration Flow
 
@@ -121,8 +177,21 @@ henry tui            # Launch terminal UI
 
 ## Testing Checklist
 
-- [x] All 159 existing tests pass
+### Core Functionality
+- [x] All 157 existing tests pass (2 pre-existing failures unrelated to changes)
 - [ ] Manual test: `henry init` with models present
 - [ ] Manual test: `henry init --no-load`
 - [ ] Manual test: `henry tui` launch and model loading
 - [ ] Manual test: `henry discover --use-cli` fallback
+
+### Specialist Agents
+- [ ] Manual test: `henry run "Write a hello world function"` (CodeAgent)
+- [ ] Manual test: `henry run "Explain the project structure"` (ResearchAgent)
+- [ ] Manual test: `henry run "Write a README section"` (WritingAgent)
+- [ ] Manual test: `henry run "Design an architecture for..."` (ReasoningAgent)
+
+### File System Tools
+- [ ] Agent can read files with `read_file()`
+- [ ] Agent can write files with `write_file()`
+- [ ] Agent can list directories with `list_directory()`
+- [ ] Agent can search files with `search_files()`

@@ -179,20 +179,33 @@ def run(
             if analysis.subtasks:
                 console.print(f"\n[dim]Subtasks: {len(analysis.subtasks)}[/dim]")
 
-            # For now, use router to generate response
-            # In full implementation, would use specialist agents
-            router.state.conversation_history = []
-            router._add_user_message(task)
-
-            response = await router._call_model(temperature=0.7, max_tokens=2000)
-
-            console.print("\n[bold green]Result:[/bold green]")
-            console.print(Panel(response, title="Output"))
-
-            # Update context
-            context_manager.add_message("user", task)
-            context_manager.add_message("assistant", response)
-            await context_manager.save_state()
+            # Create specialist agent for task type
+            from .agents import create_agent_for_type
+            
+            specialist = create_agent_for_type(
+                task_type=analysis.task_type.value,
+                client=client,
+                model=target_model,
+            )
+            
+            console.print(f"[dim]Using {specialist.agent_id} for {analysis.task_type.value} task[/dim]")
+            
+            # Execute with specialist agent
+            result = await specialist.execute(task)
+            
+            if result.success:
+                console.print("\n[bold green]Result:[/bold green]")
+                console.print(Panel(result.output, title="Output"))
+                
+                if result.artifacts:
+                    console.print(f"\n[yellow]Artifacts generated: {len(result.artifacts)}[/yellow]")
+                
+                # Update context
+                context_manager.add_message("user", task)
+                context_manager.add_message("assistant", result.output)
+                await context_manager.save_state()
+            else:
+                console.print(f"[red]Error:[/red] {result.error}")
 
         except KeyboardInterrupt:
             console.print("\n[yellow]Task interrupted[/yellow]")
