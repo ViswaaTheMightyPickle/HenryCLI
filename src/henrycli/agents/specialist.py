@@ -62,13 +62,59 @@ Final Answer: Created and tested hello.py which prints "Hello, World!"
 
 Begin!"""
 
-    def __init__(self, client: LMStudioClient, model: str = "qwen2.5-7b-instruct-q4_k_m"):
+    # Models that are too small for reliable ReAct behavior
+    SMALL_MODEL_PATTERNS = ["1b", "2b", "3b", "4b", "0.5b", "0.6b", "phi-3-mini", "phi-2", "phi-3-small"]
+    # Preferred models for coding tasks (in priority order)
+    PREFERRED_MODELS = ["qwen2.5-7b", "qwen2.5-14b", "qwen2.5-32b", "magnum-v4-9b", "qwen3.5-9b", "ministral"]
+
+    def __init__(self, client: LMStudioClient, model: str | None = None):
+        # Select appropriate model
+        selected_model = self._select_model(client, model, "code")
+        
         super().__init__(
             client=client,
-            model=model,
-            max_iterations=15,  # More iterations for complex coding tasks
+            model=selected_model,
+            max_iterations=15,
         )
         self.agent_id = "code-agent"
+    
+    def _select_model(self, client: LMStudioClient, model: str | None, task_type: str) -> str:
+        """Select appropriate model, avoiding small models that fail at ReAct."""
+        import asyncio
+        
+        # If no model specified, use default
+        if model is None:
+            return "qwen2.5-7b-instruct-q4_k_m"
+        
+        # Check if model is too small
+        model_lower = model.lower()
+        if any(pattern in model_lower for pattern in self.SMALL_MODEL_PATTERNS):
+            # Need to find a better model from loaded models
+            try:
+                loop = asyncio.get_event_loop()
+                loaded = loop.run_until_complete(client.get_models())
+                
+                # Find best match from preferred models
+                for preferred in self.PREFERRED_MODELS:
+                    for mdl in loaded.data:
+                        if preferred in mdl.id.lower():
+                            return mdl.id
+                
+                # Fall back to any model >= 7B
+                for mdl in loaded.data:
+                    mdl_lower = mdl.id.lower()
+                    if any(size in mdl_lower for size in ["7b", "8b", "9b", "14b", "20b", "30b", "32b"]):
+                        return mdl.id
+                
+                # Last resort: use any non-small model
+                for mdl in loaded.data:
+                    if not any(p in mdl.id.lower() for p in self.SMALL_MODEL_PATTERNS):
+                        return mdl.id
+                        
+            except Exception:
+                pass  # Fall through to original model
+        
+        return model
 
 
 class ResearchAgent(AgenticAgent):
@@ -89,6 +135,17 @@ class ResearchAgent(AgenticAgent):
 You have access to these tools:
 {tools}
 
+You MUST use this EXACT format for EVERY response:
+
+Thought: <your reasoning about what to do next>
+Action: <tool_name>
+Action Input: <tool parameters>
+
+OR when the task is complete:
+
+Thought: I have completed the task
+Final Answer: <your final response>
+
 To analyze a codebase:
 1. Start by listing directories to understand the structure
 2. Read relevant files to understand the code
@@ -101,13 +158,45 @@ Use Final Answer when you have completed your analysis.
 
 Begin!"""
 
-    def __init__(self, client: LMStudioClient, model: str = "qwen2.5-7b-instruct-q4_k_m"):
+    SMALL_MODEL_PATTERNS = ["1b", "2b", "3b", "4b", "0.5b", "0.6b", "phi-3-mini", "phi-2", "phi-3-small"]
+    PREFERRED_MODELS = ["qwen2.5-7b", "qwen2.5-14b", "magnum-v4-9b", "qwen3.5-9b", "ministral"]
+
+    def __init__(self, client: LMStudioClient, model: str | None = None):
+        selected_model = self._select_model(client, model)
         super().__init__(
             client=client,
-            model=model,
-            max_iterations=20,  # More iterations for thorough research
+            model=selected_model,
+            max_iterations=20,
         )
         self.agent_id = "research-agent"
+    
+    def _select_model(self, client: LMStudioClient, model: str | None) -> str:
+        """Select appropriate model, avoiding small models."""
+        import asyncio
+        
+        if model is None:
+            return "qwen2.5-7b-instruct-q4_k_m"
+        
+        model_lower = model.lower()
+        if any(pattern in model_lower for pattern in self.SMALL_MODEL_PATTERNS):
+            try:
+                loop = asyncio.get_event_loop()
+                loaded = loop.run_until_complete(client.get_models())
+                
+                for preferred in self.PREFERRED_MODELS:
+                    for mdl in loaded.data:
+                        if preferred in mdl.id.lower():
+                            return mdl.id
+                
+                for mdl in loaded.data:
+                    mdl_lower = mdl.id.lower()
+                    if any(size in mdl_lower for size in ["7b", "8b", "9b", "14b", "20b", "30b", "32b"]):
+                        return mdl.id
+                        
+            except Exception:
+                pass
+        
+        return model
 
 
 class WritingAgent(AgenticAgent):
@@ -128,6 +217,17 @@ class WritingAgent(AgenticAgent):
 You have access to these tools:
 {tools}
 
+You MUST use this EXACT format for EVERY response:
+
+Thought: <your reasoning about what to do next>
+Action: <tool_name>
+Action Input: <tool parameters>
+
+OR when the task is complete:
+
+Thought: I have completed the task
+Final Answer: <your final response>
+
 To complete a writing task:
 1. Read any existing context files if needed
 2. Write the documentation/content to a file
@@ -139,13 +239,44 @@ Use Final Answer when the writing is complete.
 
 Begin!"""
 
-    def __init__(self, client: LMStudioClient, model: str = "qwen2.5-7b-instruct-q4_k_m"):
+    SMALL_MODEL_PATTERNS = ["1b", "2b", "3b", "4b", "0.5b", "0.6b", "phi-3-mini", "phi-2", "phi-3-small"]
+    PREFERRED_MODELS = ["qwen2.5-7b", "qwen2.5-14b", "magnum-v4-9b", "qwen3.5-9b"]
+
+    def __init__(self, client: LMStudioClient, model: str | None = None):
+        selected_model = self._select_model(client, model)
         super().__init__(
             client=client,
-            model=model,
+            model=selected_model,
             max_iterations=10,
         )
         self.agent_id = "writing-agent"
+    
+    def _select_model(self, client: LMStudioClient, model: str | None) -> str:
+        """Select appropriate model, avoiding small models."""
+        import asyncio
+        
+        if model is None:
+            return "qwen2.5-7b-instruct-q4_k_m"
+        
+        model_lower = model.lower()
+        if any(pattern in model_lower for pattern in self.SMALL_MODEL_PATTERNS):
+            try:
+                loop = asyncio.get_event_loop()
+                loaded = loop.run_until_complete(client.get_models())
+                
+                for preferred in self.PREFERRED_MODELS:
+                    for mdl in loaded.data:
+                        if preferred in mdl.id.lower():
+                            return mdl.id
+                
+                for mdl in loaded.data:
+                    if any(size in mdl.id.lower() for size in ["7b", "8b", "9b", "14b", "20b", "30b", "32b"]):
+                        return mdl.id
+                        
+            except Exception:
+                pass
+        
+        return model
 
 
 class ReasoningAgent(AgenticAgent):
@@ -166,6 +297,17 @@ class ReasoningAgent(AgenticAgent):
 You have access to these tools:
 {tools}
 
+You MUST use this EXACT format for EVERY response:
+
+Thought: <your reasoning about what to do next>
+Action: <tool_name>
+Action Input: <tool parameters>
+
+OR when the task is complete:
+
+Thought: I have completed the task
+Final Answer: <your final response>
+
 To complete a reasoning task:
 1. Read any relevant context files
 2. Think through the problem step-by-step
@@ -177,13 +319,50 @@ Use Final Answer when you have completed your analysis.
 
 Begin!"""
 
-    def __init__(self, client: LMStudioClient, model: str = "qwen2.5-32b-instruct-q4_k_m"):
+    SMALL_MODEL_PATTERNS = ["1b", "2b", "3b", "4b", "0.5b", "0.6b", "phi-3-mini", "phi-2", "phi-3-small"]
+    PREFERRED_MODELS = ["qwen2.5-32b", "qwen3-coder-30b", "gpt-oss-20b", "qwen2.5-14b"]
+
+    def __init__(self, client: LMStudioClient, model: str | None = None):
+        selected_model = self._select_model(client, model)
         super().__init__(
             client=client,
-            model=model,
+            model=selected_model,
             max_iterations=15,
         )
         self.agent_id = "reasoning-agent"
+    
+    def _select_model(self, client: LMStudioClient, model: str | None) -> str:
+        """Select appropriate model, avoiding small models."""
+        import asyncio
+        
+        if model is None:
+            return "qwen2.5-32b-instruct-q4_k_m"
+        
+        model_lower = model.lower()
+        if any(pattern in model_lower for pattern in self.SMALL_MODEL_PATTERNS):
+            try:
+                loop = asyncio.get_event_loop()
+                loaded = loop.run_until_complete(client.get_models())
+                
+                for preferred in self.PREFERRED_MODELS:
+                    for mdl in loaded.data:
+                        if preferred in mdl.id.lower():
+                            return mdl.id
+                
+                # For reasoning, prefer larger models (20B+)
+                for mdl in loaded.data:
+                    if any(size in mdl.id.lower() for size in ["20b", "30b", "32b", "34b", "70b"]):
+                        return mdl.id
+                
+                # Fall back to any 7B+
+                for mdl in loaded.data:
+                    if any(size in mdl.id.lower() for size in ["7b", "8b", "9b", "14b"]):
+                        return mdl.id
+                        
+            except Exception:
+                pass
+        
+        return model
 
 
 def create_agent_for_type(
@@ -202,34 +381,18 @@ def create_agent_for_type(
     Returns:
         Specialist agent instance
     """
-    # Default models for each type - these are MINIMUM sizes for agentic behavior
-    # Smaller models (<7B) often fail to follow ReAct format reliably
-    defaults = {
-        "code": "qwen2.5-7b-instruct-q4_k_m",  # 7B minimum for code generation
-        "research": "qwen2.5-7b-instruct-q4_k_m",  # 7B for analysis
-        "writing": "qwen2.5-7b-instruct-q4_k_m",  # 7B for coherent writing
-        "reasoning": "qwen2.5-32b-instruct-q4_k_m",  # 32B for complex reasoning
-    }
+    # Patterns that indicate small models (< 7B) - these fail at ReAct format
+    small_model_patterns = ["1b", "2b", "3b", "4b", "0.5b", "0.6b", "phi-3-mini", "phi-2", "phi-3-small"]
     
-    # Use provided model or default
-    # If provided model is too small, use the default instead
-    selected_model = model or defaults.get(task_type, "qwen2.5-7b-instruct-q4_k_m")
-    
-    # Check if model is likely too small for agentic work
-    # Models < 7B often fail at ReAct-style tool use
-    model_too_small = any(
-        small in selected_model.lower()
-        for small in ["1b", "2b", "3b", "4b", "0.5b", "phi-3-mini", "phi-2"]
-    )
-    
-    if model_too_small and not model:  # Only override if using default
-        selected_model = defaults.get(task_type, "qwen2.5-7b-instruct-q4_k_m")
-    
+    # Pass model selection to agent - it will handle async model discovery
     agents = {
-        "code": CodeAgent(client, selected_model),
-        "research": ResearchAgent(client, selected_model),
-        "writing": WritingAgent(client, selected_model),
-        "reasoning": ReasoningAgent(client, selected_model),
+        "code": CodeAgent(client, model),
+        "research": ResearchAgent(client, model),
+        "writing": WritingAgent(client, model),
+        "reasoning": ReasoningAgent(client, model),
     }
     
-    return agents.get(task_type, WritingAgent(client, selected_model))
+    agent = agents.get(task_type, WritingAgent(client, model))
+    
+    # If model was too small, agent will have selected a better one
+    return agent
