@@ -232,23 +232,29 @@ class AutoTierClassifier:
             analysis = self.analyze_model(model_key)
             results.append(analysis)
         
-        # Sort by tier, then by speed preference within tier
-        # For T2: prefer 7-9B models (faster) over 14B+ (slower)
+        # Sort by tier, then by capability preference within tier
+        # For T2: prefer 14B models (best for ReAct) over smaller models
         def sort_key(x):
             tier_order = {"T1": 0, "T2": 1, "T3": 2, "T4": 3}
             tier = tier_order.get(x.tier.value, 99)
             
-            # For T2, prefer smaller/faster models
+            # For T2, prefer 14B models (most reliable for ReAct tool use)
             if x.tier.value == "T2":
                 params = x.estimated_params_b
-                # Prefer 7-9B range
-                if 7 <= params <= 9:
-                    speed_score = 0  # Best
-                elif 9 < params <= 14:
-                    speed_score = 1  # Good
+                model_key = x.model_key.lower()
+                
+                # 14B models are best for ReAct
+                if "ministral" in model_key or (14 <= params <= 15):
+                    capability_score = 0  # Best
+                # 9B models are ok
+                elif 9 <= params < 14:
+                    capability_score = 1  # Good
+                # 7-8B models
+                elif 7 <= params < 9:
+                    capability_score = 2  # Acceptable
                 else:
-                    speed_score = 2  # Slower
-                return (tier, speed_score, -params)
+                    capability_score = 3  # Less preferred
+                return (tier, capability_score, -params)
             
             # For other tiers, sort by params (larger first)
             return (tier, 0, -x.estimated_params_b)
