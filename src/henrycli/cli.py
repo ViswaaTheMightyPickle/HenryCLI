@@ -157,6 +157,17 @@ def run(
                 console.print("[dim]Upgrading tier for code task (T1 → T2)[/dim]")
                 target_tier = "T2"
             
+            # For code tasks, prefer 14B+ models (more reliable at ReAct)
+            if analysis.task_type.value == "code" and target_tier == "T2":
+                # Find a 14B+ model in T2
+                t2_models = model_pool.get_models_for_tier("T2")
+                for mdl in t2_models:
+                    mdl_lower = mdl.lower()
+                    if "14b" in mdl_lower or "ministral" in mdl_lower:
+                        console.print("[dim]Using 14B+ model for reliable code generation[/dim]")
+                        target_model = mdl
+                        break
+            
             # Allow user override with --tier flag
             if tier:
                 target_tier = tier
@@ -166,6 +177,17 @@ def run(
             if not target_model:
                 console.print(f"[red]No model available for tier {target_tier}[/red]")
                 return
+
+            # For code tasks, prefer 14B+ models (more reliable at ReAct)
+            if analysis.task_type.value == "code" and target_tier == "T2":
+                # Find a 14B+ model in T2
+                t2_models = model_pool.get_models_for_tier("T2")
+                for mdl in t2_models:
+                    mdl_lower = mdl.lower()
+                    if "14b" in mdl_lower or "ministral" in mdl_lower:
+                        console.print("[dim]Using 14B+ model for reliable code generation[/dim]")
+                        target_model = mdl
+                        break
 
             console.print(f"\n[bold blue]Using model:[/bold blue] {target_model}")
 
