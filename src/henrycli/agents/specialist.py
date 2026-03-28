@@ -67,9 +67,10 @@ Final Answer: Created and tested hello.py which prints "Hello, World!"
 Begin!"""
 
     # Models that are too small for reliable ReAct behavior
-    SMALL_MODEL_PATTERNS = ["1b", "2b", "3b", "4b", "0.5b", "0.6b", "phi-3-mini", "phi-2", "phi-3-small", "qwen2.5-0.5b", "qwen2.5-1.5b", "qwen2.5-3b"]
-    # Preferred models for coding tasks (in priority order)
-    PREFERRED_MODELS = ["magnum-v4-9b", "qwen3.5-9b", "qwen2.5-7b", "qwen2.5-14b", "qwen2.5-32b", "nemotron"]
+    # Includes models < 14B - they struggle with structured Thought/Action format
+    SMALL_MODEL_PATTERNS = ["1b", "2b", "3b", "4b", "5b", "6b", "7b", "8b", "9b", "10b", "11b", "12b", "13b", "0.5b", "0.6b", "phi-3-mini", "phi-2", "phi-3-small", "qwen2.5-0.5b", "qwen2.5-1.5b", "qwen2.5-3b", "qwen2.5-7b", "magnum-v4-9b", "nemotron"]
+    # Preferred models for coding tasks (14B+ for reliable ReAct)
+    PREFERRED_MODELS = ["ministral-3-14b", "qwen2.5-14b", "qwen2.5-32b", "qwen3.5-9b"]
 
     def __init__(self, client: LMStudioClient, model: str | None = None):
         # Select appropriate model
@@ -78,8 +79,7 @@ Begin!"""
         super().__init__(
             client=client,
             model=selected_model,
-            max_iterations=8,  # Reduced for faster completion
-            max_tokens=1500,
+            max_iterations=12,  # Enough for multi-file tasks
         )
         self.agent_id = "code-agent"
     

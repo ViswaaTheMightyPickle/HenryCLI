@@ -157,12 +157,9 @@ def run(
                 console.print("[dim]Upgrading tier for code task (T1 → T2)[/dim]")
                 target_tier = "T2"
             
-            # Cap tier for code tasks at T2 unless truly complex
-            # T3 (30B+) is too slow for most coding tasks
-            if analysis.task_type.value == "code" and target_tier == "T3":
-                if analysis.complexity.value != "complex":
-                    console.print("[dim]Using T2 for code task (faster)[/dim]")
-                    target_tier = "T2"
+            # Allow user override with --tier flag
+            if tier:
+                target_tier = tier
 
             # Get model for tier
             target_model = model_pool.get_model_for_tier(target_tier)
