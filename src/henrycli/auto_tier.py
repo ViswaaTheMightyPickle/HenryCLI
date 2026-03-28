@@ -198,14 +198,18 @@ class AutoTierClassifier:
         Classify a list of local models.
 
         Args:
-            models: List of model dicts from LM Studio API
+            models: List of model dicts from LM Studio API or CLI
 
         Returns:
             List of ModelAnalysis results
         """
         results = []
         for model in models:
-            model_key = model.get("model_key", model.get("name", ""))
+            # Handle both camelCase (lms CLI JSON) and snake_case (REST API)
+            model_key = model.get(
+                "modelKey",  # camelCase from lms ls --json
+                model.get("model_key", model.get("name", ""))
+            )
             analysis = self.analyze_model(model_key)
             results.append(analysis)
         return results

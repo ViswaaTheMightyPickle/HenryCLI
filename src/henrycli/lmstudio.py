@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from typing import AsyncIterator, Optional
+import subprocess
+import json
+from typing import Any, AsyncIterator, Optional
 
 import httpx
 from pydantic import BaseModel, Field
@@ -197,7 +199,7 @@ class LMStudioClient:
         identifier: str | None = None,
     ) -> dict[str, Any]:
         """
-        Load a model via LM Studio REST API.
+        Load a model via LM Studio REST API with CLI fallback.
 
         Args:
             model_key: Model identifier (e.g., "TheBloke/phi-3-mini-4k-instruct-GGUF")
@@ -206,24 +208,85 @@ class LMStudioClient:
             identifier: Custom identifier for the loaded model
 
         Returns:
-            Response with instance_id
+            Response with instance_id or CLI result
         """
-        client = await self._get_client()
-        payload: dict[str, Any] = {"model_key": model_key}
+        # Try REST API first
+        try:
+            client = await self._get_client()
+            payload: dict[str, Any] = {"model_key": model_key}
 
-        if gpu_layers:
-            payload["gpu_layers"] = gpu_layers
+            if gpu_layers:
+                payload["gpu_layers"] = gpu_layers
+            if context_length:
+                payload["context_length"] = context_length
+            if identifier:
+                payload["identifier"] = identifier
+
+            response = await client.post(
+                "/api/v1/models/load",
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPError:
+            # Fallback to CLI
+            return await self._load_model_via_cli(
+                model_key, gpu_layers, context_length, identifier
+            )
+
+    async def _load_model_via_cli(
+        self,
+        model_key: str,
+        gpu_layers: str | None = None,
+        context_length: int | None = None,
+        identifier: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Load a model using lms CLI as fallback.
+
+        Args:
+            model_key: Model identifier
+            gpu_layers: GPU layers setting
+            context_length: Context length
+            identifier: Custom identifier
+
+        Returns:
+            Result dict with success status
+        """
+        cmd = ["lms", "load", "-y"]
+        
+        if gpu_layers and gpu_layers != "auto":
+            cmd.extend(["--gpu", gpu_layers])
         if context_length:
-            payload["context_length"] = context_length
+            cmd.extend(["--context-length", str(context_length)])
         if identifier:
-            payload["identifier"] = identifier
-
-        response = await client.post(
-            "/api/v1/models/load",
-            json=payload,
-        )
-        response.raise_for_status()
-        return response.json()
+            cmd.extend(["--identifier", identifier])
+        
+        cmd.append(model_key)
+        
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            return {
+                "success": result.returncode == 0,
+                "instance_id": model_key,
+                "cli_output": result.stdout,
+                "cli_error": result.stderr,
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "error": "CLI command timed out",
+            }
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "error": "lms CLI not found",
+            }
 
     async def unload_model(self, instance_id: str) -> dict[str, Any]:
         """
@@ -262,7 +325,7 @@ class LMStudioClient:
 
     async def download_model(self, model_key: str) -> dict[str, Any]:
         """
-        Download a model via LM Studio CLI API.
+        Download a model via LM Studio CLI.
 
         Args:
             model_key: Model identifier (e.g., "TheBloke/phi-3-mini-4k-instruct-GGUF")
@@ -270,13 +333,204 @@ class LMStudioClient:
         Returns:
             Download status
         """
-        client = await self._get_client()
-        response = await client.post(
-            "/api/v1/models/download",
-            json={"model_key": model_key},
-        )
-        response.raise_for_status()
-        return response.json()
+        return await self._download_model_via_cli(model_key)
+
+    async def _download_model_via_cli(
+        self,
+        model_key: str,
+        quantization: str | None = None,
+        yes: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Download a model using lms CLI.
+
+        Args:
+            model_key: Model identifier
+            quantization: Specific quantization (e.g., "q4_k_m")
+            yes: Auto-confirm prompts
+
+        Returns:
+            Result dict with success status
+        """
+        cmd = ["lms", "get"]
+        
+        if yes:
+            cmd.append("-y")
+        
+        if quantization and "@" not in model_key:
+            model_key = f"{model_key}@{quantization}"
+        
+        cmd.append(model_key)
+        
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            return {
+                "success": result.returncode == 0,
+                "output": result.stdout,
+                "error": result.stderr,
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "error": "Download timed out",
+            }
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "error": "lms CLI not found",
+            }
+
+    async def server_status(self) -> dict[str, Any]:
+        """
+        Get LM Studio server status via CLI.
+
+        Returns:
+            Server status dict
+        """
+        try:
+            result = subprocess.run(
+                ["lms", "server", "status"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return {
+                "running": result.returncode == 0,
+                "output": result.stdout,
+                "error": result.stderr,
+            }
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            # Fallback: check if API is reachable
+            try:
+                client = await self._get_client()
+                response = await client.get("/health")
+                return {
+                    "running": response.status_code == 200,
+                    "output": "Server is running",
+                }
+            except Exception:
+                return {
+                    "running": False,
+                    "error": "Cannot connect to server",
+                }
+
+    async def server_start(self) -> dict[str, Any]:
+        """
+        Start LM Studio server via CLI.
+
+        Returns:
+            Result dict
+        """
+        try:
+            result = subprocess.run(
+                ["lms", "server", "start"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            return {
+                "success": result.returncode == 0,
+                "output": result.stdout,
+                "error": result.stderr,
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "error": "Start command timed out",
+            }
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "error": "lms CLI not found",
+            }
+
+    async def server_stop(self) -> dict[str, Any]:
+        """
+        Stop LM Studio server via CLI.
+
+        Returns:
+            Result dict
+        """
+        try:
+            result = subprocess.run(
+                ["lms", "server", "stop"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            return {
+                "success": result.returncode == 0,
+                "output": result.stdout,
+                "error": result.stderr,
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "error": "Stop command timed out",
+            }
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "error": "lms CLI not found",
+            }
+
+    async def import_model(
+        self,
+        file_path: str,
+        user_repo: str | None = None,
+        copy: bool = False,
+        yes: bool = True,
+    ) -> dict[str, Any]:
+        """
+        Import a model file via CLI.
+
+        Args:
+            file_path: Path to model file
+            user_repo: User/repo format for categorization
+            copy: Copy instead of move
+            yes: Auto-confirm
+
+        Returns:
+            Result dict
+        """
+        cmd = ["lms", "import"]
+        
+        if yes:
+            cmd.append("-y")
+        if copy:
+            cmd.append("-c")
+        if user_repo:
+            cmd.extend(["--user-repo", user_repo])
+        
+        cmd.append(file_path)
+        
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            return {
+                "success": result.returncode == 0,
+                "output": result.stdout,
+                "error": result.stderr,
+            }
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "error": "Import timed out",
+            }
+        except FileNotFoundError:
+            return {
+                "success": False,
+                "error": "lms CLI not found",
+            }
 
     async def list_local_models(self) -> list[dict[str, Any]]:
         """

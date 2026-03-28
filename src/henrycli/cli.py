@@ -206,7 +206,8 @@ def run(
 
 @app.command()
 def models(
-    list_models: bool = typer.Option(False, "--list", "-l", help="List all models"),
+    list_models: bool = typer.Option(False, "--list", "-l", help="List configured models"),
+    local: bool = typer.Option(False, "--local", help="List local installed models"),
     stats: bool = typer.Option(False, "--stats", "-s", help="Show model statistics"),
 ) -> None:
     """Manage model configuration."""
@@ -217,6 +218,40 @@ def models(
         model_pool = ModelPool(client, config)
 
         try:
+            if local:
+                # Show locally installed models from lms CLI
+                local_models = await client.list_downloaded_models()
+                if not local_models:
+                    console.print("[dim]No local models found[/dim]")
+                    return
+
+                console.print("[bold]Local Models (from lms):[/bold]\n")
+                llm_models = [m for m in local_models if m.get("type") == "llm"]
+                embedding_models = [m for m in local_models if m.get("type") == "embedding"]
+
+                if llm_models:
+                    console.print(f"[cyan]LLM Models ({len(llm_models)}):[/cyan]")
+                    for model in llm_models:
+                        model_key = model.get("modelKey", model.get("name", "Unknown"))
+                        params = model.get("paramsString", "?")
+                        size_gb = model.get("sizeBytes", 0) / (1024**3)
+                        arch = model.get("architecture", "?")
+                        loaded = " [green]✓ LOADED[/green]" if model.get("identifier") else ""
+                        console.print(
+                            f"  • {model_key} - {params} ({arch}) - {size_gb:.2f} GB{loaded}"
+                        )
+                    console.print()
+
+                if embedding_models:
+                    console.print(f"[cyan]Embedding Models ({len(embedding_models)}):[/cyan]")
+                    for model in embedding_models:
+                        model_key = model.get("modelKey", model.get("name", "Unknown"))
+                        size_gb = model.get("sizeBytes", 0) / (1024**3)
+                        console.print(
+                            f"  • {model_key} - {size_gb:.2f} GB"
+                        )
+                    console.print()
+
             if list_models:
                 console.print("[bold]Configured Models:[/bold]\n")
                 for tier_id in ["T1", "T2", "T3", "T4"]:
@@ -634,6 +669,165 @@ def get(
             console.print(f"  Path: {result['path']}")
         else:
             console.print(f"[red]✗[/red] {result.get('message', 'Download failed')}")
+
+    asyncio.run(run())
+
+
+@app.command()
+def download(
+    model: str = typer.Argument(..., help="Model to download (e.g., TheBloke/phi-3-mini-4k-instruct-GGUF)"),
+    quantization: str | None = typer.Option(
+        None, "--quant", "-q", help="Specific quantization (e.g., q4_k_m)"
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Auto-confirm prompts"
+    ),
+) -> None:
+    """
+    Download a model from LM Studio Hub.
+
+    Wraps 'lms get' command with HenryCLI interface.
+
+    Examples:
+        henry download TheBloke/phi-3-mini-4k-instruct-GGUF
+        henry download llama-3.1-8b --quant q4_k_m
+        henry download qwen2.5-7b -y
+    """
+
+    async def run() -> None:
+        client = get_client()
+        try:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                progress.add_task("Downloading model...", total=None)
+
+                result = await client.download_model(
+                    model_key=model,
+                    quantization=quantization,
+                    yes=yes,
+                )
+
+            if result.get("success"):
+                console.print(f"[green]✓[/green] Downloaded: {model}")
+                if result.get("output"):
+                    console.print(f"[dim]{result['output']}[/dim]")
+            else:
+                console.print(f"[red]✗[/red] Failed to download: {model}")
+                if result.get("error"):
+                    console.print(f"[dim]Error: {result['error']}[/dim]")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error: {e}")
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+
+
+@app.command()
+def server(
+    show_status: bool = typer.Option(False, "--status", "-s", help="Show server status"),
+    start_server: bool = typer.Option(False, "--start", help="Start server"),
+    stop_server: bool = typer.Option(False, "--stop", help="Stop server"),
+) -> None:
+    """
+    Manage LM Studio server.
+
+    Wraps 'lms server' commands.
+
+    Examples:
+        henry server --status
+        henry server --start
+        henry server --stop
+    """
+    client = get_client()
+
+    # Default to status if no option provided
+    is_status = not (show_status or start_server or stop_server)
+
+    async def run() -> None:
+        try:
+            if start_server:
+                result = await client.server_start()
+                if result.get("success"):
+                    console.print("[green]✓[/green] Server started")
+                else:
+                    console.print(f"[red]✗[/red] Failed to start: {result.get('error', 'Unknown error')}")
+
+            elif stop_server:
+                result = await client.server_stop()
+                if result.get("success"):
+                    console.print("[green]✓[/green] Server stopped")
+                else:
+                    console.print(f"[red]✗[/red] Failed to stop: {result.get('error', 'Unknown error')}")
+
+            else:  # status
+                result = await client.server_status()
+                if result.get("running"):
+                    console.print("[green]●[/green] Server is running")
+                else:
+                    console.print("[red]○[/red] Server is not running")
+                if result.get("output") and result["output"] != "Server is running":
+                    console.print(f"[dim]{result['output']}[/dim]")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error: {e}")
+        finally:
+            await client.close()
+
+    if start_server:
+        asyncio.run(run())
+    elif stop_server:
+        asyncio.run(run())
+    else:  # status (default)
+        asyncio.run(run())
+
+
+@app.command()
+def import_model(
+    file_path: str = typer.Argument(..., help="Path to model file to import"),
+    user_repo: str | None = typer.Option(
+        None, "--user-repo", help="User/repo format (e.g., TheBloke/phi-3-mini)"
+    ),
+    copy: bool = typer.Option(
+        False, "--copy", "-c", help="Copy file instead of moving"
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Auto-confirm prompts"
+    ),
+) -> None:
+    """
+    Import a model file into LM Studio.
+
+    Wraps 'lms import' command.
+
+    Examples:
+        henry import ~/Downloads/model.gguf
+        henry import model.gguf --user-repo TheBloke/phi-3-mini
+        henry import model.gguf --copy
+    """
+
+    async def run() -> None:
+        client = get_client()
+        try:
+            result = await client.import_model(
+                file_path=file_path,
+                user_repo=user_repo,
+                copy=copy,
+                yes=yes,
+            )
+
+            if result.get("success"):
+                console.print(f"[green]✓[/green] Imported: {file_path}")
+                if result.get("output"):
+                    console.print(f"[dim]{result['output']}[/dim]")
+            else:
+                console.print(f"[red]✗[/red] Failed to import: {result.get('error', 'Unknown error')}")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error: {e}")
+        finally:
+            await client.close()
 
     asyncio.run(run())
 
