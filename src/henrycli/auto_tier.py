@@ -220,7 +220,7 @@ class AutoTierClassifier:
             models: List of model dicts from LM Studio API or CLI
 
         Returns:
-            List of ModelAnalysis results, sorted by tier and params
+            List of ModelAnalysis results, sorted by tier and speed
         """
         results = []
         for model in models:
@@ -232,12 +232,28 @@ class AutoTierClassifier:
             analysis = self.analyze_model(model_key)
             results.append(analysis)
         
-        # Sort by tier (T1 first) then by params (larger first within tier)
-        # This ensures the best routing model is first in each tier
-        results.sort(key=lambda x: (
-            x.tier.value,  # T1 before T2, etc.
-            -x.estimated_params_b  # Larger models first within tier
-        ))
+        # Sort by tier, then by speed preference within tier
+        # For T2: prefer 7-9B models (faster) over 14B+ (slower)
+        def sort_key(x):
+            tier_order = {"T1": 0, "T2": 1, "T3": 2, "T4": 3}
+            tier = tier_order.get(x.tier.value, 99)
+            
+            # For T2, prefer smaller/faster models
+            if x.tier.value == "T2":
+                params = x.estimated_params_b
+                # Prefer 7-9B range
+                if 7 <= params <= 9:
+                    speed_score = 0  # Best
+                elif 9 < params <= 14:
+                    speed_score = 1  # Good
+                else:
+                    speed_score = 2  # Slower
+                return (tier, speed_score, -params)
+            
+            # For other tiers, sort by params (larger first)
+            return (tier, 0, -x.estimated_params_b)
+        
+        results.sort(key=sort_key)
         
         return results
 
