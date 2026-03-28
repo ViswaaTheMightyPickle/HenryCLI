@@ -45,9 +45,16 @@ class AutoTierClassifier:
     - And other common quantizers
     """
 
-    # Parameter size patterns in model names
+    # Parameter size patterns in model names (order matters - specific before generic)
     PARAM_PATTERNS = [
-        (r"(\d+)b(?!\d)", 1.0),  # "7b" -> 7B
+        (r"qwen2\.5-0\.5b", 0.5),  # Must be before generic \d+b pattern
+        (r"qwen2\.5-1\.5b", 1.5),
+        (r"qwen2\.5-3b", 3.0),
+        (r"qwen2\.5-7b", 7.0),
+        (r"qwen2\.5-14b", 14.0),
+        (r"qwen2\.5-32b", 32.0),
+        (r"qwen2\.5-72b", 72.0),
+        (r"(\d+)b(?!\d)", 1.0),  # "7b" -> 7B (generic, after specific)
         (r"(\d+)-b(?!\d)", 1.0),  # "7-b" -> 7B
         (r"(\d+)billion(?!\d)", 1.0),  # "7billion" -> 7B
         (r"(\d+)m(?!b|\d)", 0.001),  # "500m" -> 0.5B
