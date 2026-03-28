@@ -358,11 +358,21 @@ class HenryTUI(App):
             model = self.discovered_models["T1"][0]
             log.write(f"Loading: {model.model_key}\n")
             try:
+                # Get context length for model
+                model_lower = model.model_key.lower()
+                if any(p in model_lower for p in ["1b", "2b", "3b", "4b", "0.5b"]):
+                    ctx_len = 4096
+                elif any(p in model_lower for p in ["30b", "32b", "34b", "70b"]):
+                    ctx_len = 16384
+                else:
+                    ctx_len = 8192
+                
                 result = await self.client.load_model(
                     model_key=model.model_key,
                     gpu_layers="auto",
+                    context_length=ctx_len,
                 )
-                log.write(f"[green]✓[/green] Loaded: {model.model_key}\n")
+                log.write(f"[green]✓[/green] Loaded: {model.model_key} (context: {ctx_len})\n")
                 await self._update_status_bar()
             except Exception as e:
                 log.write(f"[red]✗[/red] Failed: {e}[/red]\n")
@@ -379,11 +389,21 @@ class HenryTUI(App):
             model = self.discovered_models["T2"][0]
             log.write(f"Loading: {model.model_key}\n")
             try:
+                # Get context length for model (7B-20B = 8192)
+                model_lower = model.model_key.lower()
+                if any(p in model_lower for p in ["1b", "2b", "3b", "4b", "0.5b"]):
+                    ctx_len = 4096
+                elif any(p in model_lower for p in ["30b", "32b", "34b", "70b"]):
+                    ctx_len = 16384
+                else:
+                    ctx_len = 8192
+                
                 result = await self.client.load_model(
                     model_key=model.model_key,
                     gpu_layers="auto",
+                    context_length=ctx_len,
                 )
-                log.write(f"[green]✓[/green] Loaded: {model.model_key}\n")
+                log.write(f"[green]✓[/green] Loaded: {model.model_key} (context: {ctx_len})\n")
                 await self._update_status_bar()
             except Exception as e:
                 log.write(f"[red]✗[/red] Failed: {e}[/red]\n")
@@ -400,11 +420,21 @@ class HenryTUI(App):
             model = self.discovered_models["T3"][0]
             log.write(f"Loading: {model.model_key}\n")
             try:
+                # Get context length for model
+                model_lower = model.model_key.lower()
+                if any(p in model_lower for p in ["1b", "2b", "3b", "4b", "0.5b"]):
+                    ctx_len = 4096
+                elif any(p in model_lower for p in ["30b", "32b", "34b", "70b"]):
+                    ctx_len = 16384
+                else:
+                    ctx_len = 8192
+                
                 result = await self.client.load_model(
                     model_key=model.model_key,
                     gpu_layers="auto",
+                    context_length=ctx_len,
                 )
-                log.write(f"[green]✓[/green] Loaded: {model.model_key}\n")
+                log.write(f"[green]✓[/green] Loaded: {model.model_key} (context: {ctx_len})\n")
                 await self._update_status_bar()
             except Exception as e:
                 log.write(f"[red]✗[/red] Failed: {e}[/red]\n")

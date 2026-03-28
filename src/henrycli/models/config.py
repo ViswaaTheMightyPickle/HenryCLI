@@ -28,6 +28,10 @@ class HardwareConfig:
     gpu: str = "RTX 4060 Laptop"
     gpu_layers_max: int = 99
     cpu_offload_threshold: float = 0.9
+    # Context length settings by model size
+    context_length_small: int = 4096  # For models < 7B
+    context_length_medium: int = 8192  # For models 7B-20B
+    context_length_large: int = 16384  # For models > 20B
 
 
 @dataclass
@@ -175,6 +179,9 @@ class ModelConfig:
             gpu=hw.get("gpu", "RTX 4060 Laptop"),
             gpu_layers_max=hw.get("gpu_layers_max", 99),
             cpu_offload_threshold=hw.get("cpu_offload_threshold", 0.9),
+            context_length_small=hw.get("context_length_small", 4096),
+            context_length_medium=hw.get("context_length_medium", 8192),
+            context_length_large=hw.get("context_length_large", 16384),
         )
 
         # Parse context
@@ -246,6 +253,29 @@ class ModelConfig:
             if model_id in tier.models:
                 return tier.vram_gb
         return 0.0
+
+    def get_context_length_for_model(self, model_id: str) -> int:
+        """
+        Get appropriate context length for a model based on its size.
+
+        Args:
+            model_id: Model identifier
+
+        Returns:
+            Context length in tokens
+        """
+        model_lower = model_id.lower()
+
+        # Small models (< 7B)
+        if any(p in model_lower for p in ["1b", "2b", "3b", "4b", "0.5b", "phi-3-mini", "phi-2"]):
+            return self.hardware.context_length_small
+
+        # Large models (> 20B)
+        if any(p in model_lower for p in ["30b", "32b", "34b", "40b", "65b", "70b", "20b"]):
+            return self.hardware.context_length_large
+
+        # Medium models (7B - 20B) - default
+        return self.hardware.context_length_medium
 
     def needs_cpu_offload(self, model_id: str) -> bool:
         """Check if a model needs CPU offloading."""

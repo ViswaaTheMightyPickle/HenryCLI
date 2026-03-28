@@ -365,10 +365,14 @@ class ModelPool:
             ).is_resident:
                 await self.client.unload_model(self.current_model)
 
-            # Load new model
+            # Get appropriate context length for model
+            context_length = self.config.get_context_length_for_model(model_key)
+
+            # Load new model with optimized context length
             result = await self.client.load_model(
                 model_key=model_key,
                 gpu_layers=gpu_layers,
+                context_length=context_length,
             )
 
             instance_id = result.get("instance_id", "")

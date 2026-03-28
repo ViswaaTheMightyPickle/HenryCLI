@@ -955,13 +955,18 @@ def init(
                 if t1_models:
                     console.print("\n[bold blue]Loading T1 routing model...[/bold blue]")
                     routing_model = t1_models[0].model_key
-                    
+
                     try:
+                        # Get appropriate context length for model
+                        context_length = config.get_context_length_for_model(routing_model)
+                        
                         result = await client.load_model(
                             model_key=routing_model,
                             gpu_layers="auto",
+                            context_length=context_length,
                         )
                         console.print(f"[green]✓[/green] Loaded: {routing_model}")
+                        console.print(f"  Context length: {context_length} tokens")
                         console.print(f"  Instance ID: {result.get('instance_id', 'N/A')}")
                         console.print("\n[bold green]HenryCLI is ready to use![/bold green]")
                         console.print("[dim]Run 'henry run <task>' to execute tasks[/dim]")
