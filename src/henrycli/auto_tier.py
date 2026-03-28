@@ -193,14 +193,12 @@ class AutoTierClassifier:
         Returns:
             AutoTier value
         """
-        if params_b < 5:
+        if params_b < 7:  # < 7B → T1 (too small for complex tasks)
             return AutoTier.T1
-        elif params_b < 10:
+        elif params_b < 20:  # 7B-20B → T2 (good for most tasks)
             return AutoTier.T2
-        elif params_b < 20:
+        else:  # > 20B → T3 (heavy reasoning)
             return AutoTier.T3
-        else:
-            return AutoTier.T4
 
     def classify_local_models(
         self,

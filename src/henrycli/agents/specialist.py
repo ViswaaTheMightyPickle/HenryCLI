@@ -67,7 +67,7 @@ Final Answer: Created and tested hello.py which prints "Hello, World!"
 Begin!"""
 
     # Models that are too small for reliable ReAct behavior
-    SMALL_MODEL_PATTERNS = ["1b", "2b", "3b", "4b", "0.5b", "0.6b", "phi-3-mini", "phi-2", "phi-3-small"]
+    SMALL_MODEL_PATTERNS = ["1b", "2b", "3b", "4b", "0.5b", "0.6b", "phi-3-mini", "phi-2", "phi-3-small", "qwen2.5-0.5b", "qwen2.5-1.5b", "qwen2.5-3b"]
     # Preferred models for coding tasks (in priority order)
     PREFERRED_MODELS = ["magnum-v4-9b", "qwen3.5-9b", "qwen2.5-7b", "qwen2.5-14b", "qwen2.5-32b", "nemotron"]
 
