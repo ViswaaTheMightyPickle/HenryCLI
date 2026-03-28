@@ -833,6 +833,143 @@ def import_model(
 
 
 @app.command()
+def init(
+    auto_load: bool = typer.Option(
+        True, "--load/--no-load", help="Auto-load the T1 routing model after init"
+    ),
+    use_cli: bool = typer.Option(
+        False, "--use-cli", help="Use lms CLI instead of REST API for discovery"
+    ),
+) -> None:
+    """
+    Initialize HenryCLI by discovering models and auto-configuring tiers.
+
+    This command:
+    1. Discovers all local models
+    2. Classifies them into tiers (T1-T4) based on parameter count
+    3. Generates and saves tier configuration
+    4. Optionally loads the T1 routing model
+
+    Examples:
+        henry init
+        henry init --no-load
+        henry init --use-cli
+    """
+
+    async def run() -> None:
+        from .auto_tier import AutoTier, AutoTierClassifier
+
+        client = get_client()
+        config = ModelConfig()
+
+        try:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                # Step 1: Discover models
+                task = progress.add_task("[cyan]Discovering models...", total=None)
+                
+                # Try API first
+                local_models = await client.list_local_models()
+                
+                # If API returns empty, try CLI fallback
+                if not local_models and use_cli:
+                    local_models = await client.list_downloaded_models()
+                
+                # If still no models, show helpful message
+                if not local_models:
+                    console.print("[yellow]⚠ No local models found[/yellow]")
+                    console.print("\n[dim]Possible solutions:[/dim]")
+                    console.print("  1. Make sure LM Studio server is running (port 1234)")
+                    console.print("  2. Download models using: henry download <model-name>")
+                    console.print("  3. Try with --use-cli flag: henry init --use-cli")
+                    console.print("\n[dim]Note: LM Studio REST API may not expose local models in all versions.[/dim]")
+                    return
+
+                progress.update(task, description="[green]✓[/green] Found models")
+
+            # Step 2: Classify models
+            console.print("\n[bold blue]Classifying models...[/bold blue]")
+            classifier = AutoTierClassifier(
+                hardware_vram_gb=config.hardware.vram_gb
+            )
+            analyses = classifier.classify_local_models(local_models)
+
+            # Display classification results
+            console.print("[bold]Discovered Models by Tier:[/bold]\n")
+            for tier in [AutoTier.T1, AutoTier.T2, AutoTier.T3, AutoTier.T4]:
+                tier_models = [a for a in analyses if a.tier == tier]
+                if tier_models:
+                    console.print(f"[cyan]{tier.value}[/cyan] ({tier.value} models):")
+                    for model in tier_models:
+                        console.print(
+                            f"  • {model.model_key} (~{model.estimated_params_b}B params, "
+                            f"~{model.estimated_vram_q4}GB VRAM)"
+                        )
+                    console.print()
+
+            if not any(a for a in analyses):
+                console.print("[yellow]⚠ Models found but could not classify[/yellow]")
+                return
+
+            # Step 3: Generate and save configuration
+            console.print("[bold blue]Generating configuration...[/bold blue]")
+            tier_config = classifier.generate_tier_config(local_models)
+
+            # Update config with discovered models
+            for tier_id, models in tier_config.items():
+                tier = config.get_tier(tier_id)
+                if tier and models:
+                    # Update models list
+                    tier.models = [m["model_key"] for m in models]
+                    # Set default to first (largest that fits)
+                    tier.default = models[0]["model_key"]
+                    # Update VRAM estimate
+                    tier.vram_gb = models[0]["vram_q4"]
+                    # Mark T1 as resident (routing model)
+                    if tier_id == "T1":
+                        tier.resident = True
+
+            # Save configuration
+            config.save_config()
+            console.print(f"[green]✓[/green] Configuration saved to: {config.config_path}")
+
+            # Step 4: Load T1 routing model if requested
+            if auto_load:
+                t1_models = [a for a in analyses if a.tier == AutoTier.T1]
+                if t1_models:
+                    console.print("\n[bold blue]Loading T1 routing model...[/bold blue]")
+                    routing_model = t1_models[0].model_key
+                    
+                    try:
+                        result = await client.load_model(
+                            model_key=routing_model,
+                            gpu_layers="auto",
+                        )
+                        console.print(f"[green]✓[/green] Loaded: {routing_model}")
+                        console.print(f"  Instance ID: {result.get('instance_id', 'N/A')}")
+                        console.print("\n[bold green]HenryCLI is ready to use![/bold green]")
+                        console.print("[dim]Run 'henry run <task>' to execute tasks[/dim]")
+                    except Exception as e:
+                        console.print(f"[yellow]⚠ Model load failed: {e}[/yellow]")
+                        console.print("[dim]You can manually load the model in LM Studio[/dim]")
+                else:
+                    console.print("\n[yellow]⚠ No T1 models found for routing[/yellow]")
+                    console.print("[dim]Consider downloading a small model for routing tasks[/dim]")
+
+        except Exception as e:
+            console.print(f"[red]✗[/red] Error: {e}")
+            import traceback
+            console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+
+
+@app.command()
 def tui() -> None:
     """Launch the HenryCLI Terminal User Interface."""
     from .tui import run_tui

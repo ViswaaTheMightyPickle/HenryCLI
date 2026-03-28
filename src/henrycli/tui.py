@@ -18,6 +18,7 @@ from textual.widgets import (
     RichLog,
     Label,
     LoadingIndicator,
+    ProgressBar,
 )
 from textual.binding import Binding
 from rich.markdown import Markdown
@@ -82,7 +83,8 @@ class HenryTUI(App):
     }
 
     #status-bar {
-        height: 3;
+        height: auto;
+        min-height: 3;
         background: $primary-background;
         border: solid $primary;
         margin-bottom: 1;
@@ -96,13 +98,20 @@ class HenryTUI(App):
     }
 
     #input-area Input {
-        width: 100%;
+        width: 1fr;
+    }
+
+    #input-area Button {
+        width: auto;
+        min-width: 10;
+        margin-left: 1;
     }
 
     #content-area {
         height: 1fr;
         border: solid $secondary;
         background: $surface;
+        padding: 1;
     }
 
     #content-area RichLog {
@@ -110,7 +119,7 @@ class HenryTUI(App):
     }
 
     #sidebar {
-        width: 30;
+        width: 32;
         height: 100%;
         border-left: solid $primary;
         padding: 1;
@@ -128,12 +137,28 @@ class HenryTUI(App):
         padding: 0 1;
     }
 
+    .tier-item {
+        background: $surface;
+        padding: 1;
+        margin-bottom: 1;
+    }
+
     Button {
         margin-bottom: 1;
     }
 
     #task-history DataTable {
         height: 1fr;
+    }
+
+    #quick-actions {
+        height: auto;
+        max-height: 10;
+    }
+
+    #tier-list {
+        height: auto;
+        max-height: 12;
     }
     """
 
@@ -155,6 +180,9 @@ class HenryTUI(App):
         self.router: RouterAgent | None = None
         self.task_history: list[dict[str, Any]] = []
         self.discovered_models: dict[str, list] = {"T1": [], "T2": [], "T3": [], "T4": []}
+        self.initialized = False
+        self.current_model = "None"
+        self.vram_available = 0.0
 
     def compose(self) -> ComposeResult:
         """Compose the UI layout."""
@@ -169,14 +197,14 @@ class HenryTUI(App):
                 # Input area
                 with Horizontal(id="input-area"):
                     yield Input(
-                        placeholder="Enter your task... (e.g., 'Write a hello world program')",
+                        placeholder="Enter task... (Ctrl+N=new, Ctrl+R=refresh, Ctrl+Q=quit)",
                         id="task-input",
                     )
                     yield Button("Run", id="run-btn", variant="primary")
                     yield Button("Analyze", id="analyze-btn", variant="default")
 
                 # Content/Log area
-                yield RichLog(id="content-area", highlight=True, markup=True)
+                yield RichLog(id="content-area", highlight=True, markup=True, auto_scroll=True)
 
             # Sidebar
             with Vertical(id="sidebar"):
@@ -188,10 +216,10 @@ class HenryTUI(App):
                 yield Static("\n[bold]Quick Actions[/bold]", id="actions-header")
 
                 with Vertical(id="quick-actions"):
-                    yield Button("Discover Models", id="discover-btn", variant="default")
-                    yield Button("Load T1 Model", id="load-t1-btn", variant="default")
-                    yield Button("Load T2 Model", id="load-t2-btn", variant="default")
-                    yield Button("Load T3 Model", id="load-t3-btn", variant="default")
+                    yield Button("Discover", id="discover-btn", variant="default")
+                    yield Button("Load T1", id="load-t1-btn", variant="default")
+                    yield Button("Load T2", id="load-t2-btn", variant="default")
+                    yield Button("Load T3", id="load-t3-btn", variant="default")
                     yield Button("Unload All", id="unload-btn", variant="error")
 
                 yield Static("\n[bold]Task History[/bold]", id="history-header")
@@ -204,8 +232,17 @@ class HenryTUI(App):
         lines = []
         for tier_id, models in self.discovered_models.items():
             count = len(models)
-            lines.append(f"[cyan]{tier_id}[/cyan]: {count} models")
-        return "\n".join(lines) if lines else "[dim]No models discovered[/dim]"
+            if count > 0:
+                model_names = [m.model_key.split("/")[-1][:20] for m in models[:2]]
+                lines.append(f"[cyan]{tier_id}[/cyan]: {count} models")
+                for name in model_names:
+                    lines.append(f"  • {name}")
+                if count > 2:
+                    lines.append(f"  ... and {count - 2} more")
+        if not lines:
+            lines.append("[dim]No models discovered[/dim]")
+            lines.append("[dim]Click 'Discover' to scan[/dim]")
+        return "\n".join(lines)
 
     def on_mount(self) -> None:
         """Called when app is mounted."""
@@ -237,7 +274,12 @@ class HenryTUI(App):
             local_models = await self.client.list_local_models()
 
             if not local_models:
-                log.write("[yellow]No models found via API[/yellow]\n")
+                log.write("[yellow]No models found via API, trying CLI...[/yellow]\n")
+                local_models = await self.client.list_downloaded_models()
+
+            if not local_models:
+                log.write("[red]No models found. Download models first.[/red]\n")
+                log.write("[dim]Use: henry download <model-name>[/dim]\n")
                 return
 
             classifier = AutoTierClassifier(
@@ -255,19 +297,34 @@ class HenryTUI(App):
             # Update display
             self.query_one("#tier-display", Static).update(self._render_tiers())
 
-            # Update status bar
-            loaded = await self.client.get_models()
-            if loaded.data:
-                current = loaded.data[0].id
-                self.query_one("#status-bar", ModelStatus).update_status(
-                    current[:40] + "..." if len(current) > 40 else current,
-                    f"~{self.config.hardware.vram_gb} GB available",
-                )
+            # Update status bar with loaded models
+            await self._update_status_bar()
 
-            log.write(f"[green]✓[/green] Discovered {len(local_models)} models\n")
+            total = sum(len(m) for m in self.discovered_models.values())
+            log.write(f"[green]✓[/green] Discovered {total} models\n")
+            self.initialized = True
 
         except Exception as e:
             log.write(f"[red]Error discovering models: {e}[/red]\n")
+
+    async def _update_status_bar(self) -> None:
+        """Update the status bar with current model info."""
+        try:
+            loaded = await self.client.get_models()
+            status_widget = self.query_one("#status-bar", ModelStatus)
+            
+            if loaded.data:
+                current = loaded.data[0].id
+                self.current_model = current
+                status_widget.update_status(
+                    current[:40] + "..." if len(current) > 40 else current,
+                    f"~{self.config.hardware.vram_gb} GB available",
+                )
+            else:
+                self.current_model = "None"
+                status_widget.update_status("None", f"{self.config.hardware.vram_gb} GB available")
+        except Exception:
+            pass
 
     @on(Input.Submitted, "#task-input")
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -299,8 +356,16 @@ class HenryTUI(App):
 
         if self.discovered_models["T1"]:
             model = self.discovered_models["T1"][0]
-            log.write(f"Found: {model.model_key}\n")
-            # Would call load_model here
+            log.write(f"Loading: {model.model_key}\n")
+            try:
+                result = await self.client.load_model(
+                    model_key=model.model_key,
+                    gpu_layers="auto",
+                )
+                log.write(f"[green]✓[/green] Loaded: {model.model_key}\n")
+                await self._update_status_bar()
+            except Exception as e:
+                log.write(f"[red]✗[/red] Failed: {e}[/red]\n")
         else:
             log.write("[yellow]No T1 models discovered[/yellow]\n")
 
@@ -312,7 +377,16 @@ class HenryTUI(App):
 
         if self.discovered_models["T2"]:
             model = self.discovered_models["T2"][0]
-            log.write(f"Found: {model.model_key}\n")
+            log.write(f"Loading: {model.model_key}\n")
+            try:
+                result = await self.client.load_model(
+                    model_key=model.model_key,
+                    gpu_layers="auto",
+                )
+                log.write(f"[green]✓[/green] Loaded: {model.model_key}\n")
+                await self._update_status_bar()
+            except Exception as e:
+                log.write(f"[red]✗[/red] Failed: {e}[/red]\n")
         else:
             log.write("[yellow]No T2 models discovered[/yellow]\n")
 
@@ -324,7 +398,16 @@ class HenryTUI(App):
 
         if self.discovered_models["T3"]:
             model = self.discovered_models["T3"][0]
-            log.write(f"Found: {model.model_key}\n")
+            log.write(f"Loading: {model.model_key}\n")
+            try:
+                result = await self.client.load_model(
+                    model_key=model.model_key,
+                    gpu_layers="auto",
+                )
+                log.write(f"[green]✓[/green] Loaded: {model.model_key}\n")
+                await self._update_status_bar()
+            except Exception as e:
+                log.write(f"[red]✗[/red] Failed: {e}[/red]\n")
         else:
             log.write("[yellow]No T3 models discovered[/yellow]\n")
 
