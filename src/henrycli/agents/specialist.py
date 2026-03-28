@@ -74,11 +74,12 @@ Begin!"""
     def __init__(self, client: LMStudioClient, model: str | None = None):
         # Select appropriate model
         selected_model = self._select_model(client, model, "code")
-        
+
         super().__init__(
             client=client,
             model=selected_model,
-            max_iterations=15,
+            max_iterations=8,  # Reduced for faster completion
+            max_tokens=1500,
         )
         self.agent_id = "code-agent"
     
