@@ -120,13 +120,26 @@ def run(
         context_manager = ContextManager()
 
         try:
-            # Refresh model status
-            await model_pool.refresh_model_status()
+            # Initialize model manager
+            from .model_manager import ModelManager
+            model_mgr = ModelManager(client, config)
+            
+            # Initialize and get available models
+            await model_mgr.initialize()
+            await model_mgr.get_available_models()
+
+            # Load T1 router for task analysis
+            console.print("[bold blue]Analyzing task...[/bold blue]")
+            router_model = await model_mgr.load_router()
+            
+            if not router_model:
+                console.print("[red]Failed to load T1 router model[/red]")
+                return
+            
+            console.print(f"[dim]Router: {router_model}[/dim]")
 
             # Analyze task
             router = RouterAgent(client)
-            console.print("[bold blue]Analyzing task...[/bold blue]")
-
             analysis = await router.analyze(task)
 
             console.print(
@@ -147,59 +160,27 @@ def run(
 
             console.print(f"\n[bold blue]Using model:[/bold blue] {target_model}")
 
-            # Check if model switch needed
+            # Algorithmic model switching: unload all, load specialist
             if model_pool.current_model != target_model:
-                console.print("\n[yellow]Model switch required...[/yellow]")
+                console.print("\n[yellow]Switching models...[/yellow]")
+                
+                # Unload all models first
+                console.print("[dim]Unloading all models...[/dim]")
+                await model_mgr.unload_all()
                 
                 # Get context length for target model
                 context_length = config.get_context_length_for_model(target_model)
                 console.print(f"[dim]Context length: {context_length} tokens[/dim]")
+
+                # Load specialist model
+                console.print("[dim]Loading specialist model...[/dim]")
+                success = await model_mgr.load_specialist(target_model)
                 
-                # Try to load model automatically via API
-                console.print("[dim]Attempting to load model automatically...[/dim]")
-                try:
-                    # First try with context length
-                    result = await client.load_model(
-                        model_key=target_model,
-                        gpu_layers="auto",
-                        context_length=context_length,
-                    )
-                    if result.get("instance_id"):
-                        console.print(f"[green]✓[/green] Auto-loaded: {target_model} (context: {context_length})")
-                        model_pool.current_model = target_model
-                    else:
-                        raise Exception("Model load failed")
-                except Exception as e:
-                    # Try without context length
-                    try:
-                        console.print("[dim]Retrying without context length...[/dim]")
-                        result = await client.load_model(
-                            model_key=target_model,
-                            gpu_layers="auto",
-                        )
-                        if result.get("instance_id"):
-                            console.print(f"[green]✓[/green] Auto-loaded: {target_model} (default context)")
-                            model_pool.current_model = target_model
-                        else:
-                            raise Exception("Model load failed")
-                    except Exception as e2:
-                        # Fallback to manual load
-                        console.print(f"[dim]Auto-load failed ({e2}), manual load required[/dim]")
-                        console.print(
-                            "[dim]Please load the model in LM Studio, then press Enter[/dim]"
-                        )
-                        if interactive:
-                            input()
-
-                        success, actual_model = await model_pool.switch_with_fallback(
-                            target_model
-                        )
-
-                        if not success:
-                            console.print("[red]Failed to switch model[/red]")
-                            return
-
-                        console.print(f"[green]✓[/green] Switched to: {actual_model}")
+                if not success:
+                    console.print("[red]Failed to load specialist model[/red]")
+                    return
+                    
+                console.print(f"[green]✓[/green] Ready: {target_model}")
 
             # Create context
             context_manager.create_context(
@@ -227,18 +208,39 @@ def run(
             
             # Execute with specialist agent
             result = await specialist.execute(task)
-            
+
             if result.success:
                 console.print("\n[bold green]Result:[/bold green]")
                 console.print(Panel(result.output, title="Output"))
-                
+
                 if result.artifacts:
                     console.print(f"\n[yellow]Artifacts generated: {len(result.artifacts)}[/yellow]")
-                
+
                 # Update context
                 context_manager.add_message("user", task)
                 context_manager.add_message("assistant", result.output)
                 await context_manager.save_state()
+
+                # Reload T1 router for verification
+                console.print("\n[bold blue]Verifying results...[/bold blue]")
+                router_model = await model_mgr.reload_router()
+                
+                if router_model:
+                    console.print(f"[dim]Router: {router_model}[/dim]")
+                    
+                    # Create verification prompt
+                    verification_prompt = (
+                        f"Review this completed task and verify the output is correct:\n\n"
+                        f"Task: {task}\n\n"
+                        f"Output: {result.output[:500]}..."  # Truncate for context
+                        f"\n\nConfirm the task was completed successfully and suggest any follow-up actions."
+                    )
+                    
+                    verifier = RouterAgent(client)
+                    verification = await verifier.analyze(verification_prompt)
+                    console.print(f"[dim]Verification: {verification.output[:200]}...[/dim]")
+                else:
+                    console.print("[dim]Verification skipped (router not available)[/dim]")
             else:
                 console.print(f"[red]Error:[/red] {result.error}")
 
@@ -994,7 +996,12 @@ def init(
                     try:
                         # Get appropriate context length for model
                         context_length = config.get_context_length_for_model(routing_model)
-                        
+
+                        # Unload all models first
+                        console.print("[dim]Unloading all models...[/dim]")
+                        model_pool = ModelPool(client, config)
+                        await model_pool.auto_unload_all()
+
                         result = await client.load_model(
                             model_key=routing_model,
                             gpu_layers="auto",
